@@ -50,12 +50,21 @@ impl AppState {
     }
 
     /// 添加存储引擎
-    pub async fn add_storage(&self, name: String, prefix: String, driver: AllDriver) {
+    pub async fn add_storage<T, U>(&self, name: T, prefix: U, driver: impl Into<AllDriver>)
+    where
+        T: Into<String>,
+        U: Into<String>,
+    {
+        let prefix_str = prefix.into();
         let mut registry = self.inner.registry.write().await;
-        registry.add_driver(driver, &prefix);
+        registry.add_driver(driver, &prefix_str);
         drop(registry);
 
-        self.inner.storage_names.write().await.insert(name, prefix);
+        self.inner
+            .storage_names
+            .write()
+            .await
+            .insert(name.into(), prefix_str);
     }
 
     /// 获取存储引擎

@@ -52,6 +52,9 @@ pub enum StorageError {
 
     #[error("不支持的操作")]
     Unsupported,
+
+    #[error("{0}")]
+    Custom(String),
 }
 /// 网络相关错误
 #[derive(Error, Debug)]
@@ -137,6 +140,12 @@ impl From<reqwest::Error> for RlistError {
 impl From<postcard::Error> for RlistError {
     fn from(_: postcard::Error) -> Self {
         RlistError::Serialization(SerializationError::Postcard)
+    }
+}
+
+impl From<String> for StorageError {
+    fn from(msg: String) -> Self {
+        StorageError::Custom(msg)
     }
 }
 

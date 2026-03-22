@@ -1,5 +1,3 @@
-//! 本地存储驱动实现
-
 use crate::crypto::FileChecksum;
 use crate::error::StorageError;
 use crate::storage::file_meta::DownloadableMeta;
@@ -10,7 +8,6 @@ use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 
-/// 本地存储
 pub struct LocalStorage {
     root: PathBuf,
 }
@@ -23,17 +20,21 @@ impl LocalStorage {
     fn normalize_path(&self, path: &str) -> Result<PathBuf, StorageError> {
         let path = path.trim_start_matches('/');
         let full_path = self.root.join(path);
+        // dbg!(&full_path);
 
         let canonical_root = self
             .root
             .canonicalize()
-            .map_err(|_| StorageError::PermissionDenied)?;
+            .map_err(|_| StorageError::NotFound)?;
+        // dbg!(&canonical_root);
+
         let canonical_path = full_path
             .canonicalize()
             .unwrap_or_else(|_| full_path.clone());
+        // dbg!(&canonical_path);
 
         if !canonical_path.starts_with(&canonical_root) {
-            return Err(StorageError::PermissionDenied);
+            return Err(StorageError::NotFound);
         }
 
         Ok(canonical_path)
@@ -179,7 +180,7 @@ impl Storage for LocalStorage {
 
             loop {
                 let bytes_read = file
-                    .read_exact(&mut buffer)
+                    .read(&mut buffer)
                     .await
                     .map_err(|_| StorageError::OperationFailed)?;
                 if bytes_read == 0 {
@@ -188,8 +189,11 @@ impl Storage for LocalStorage {
                 check_sum.update(&buffer[..bytes_read]);
             }
 
+            // 生成 API 下载端点 URL
+            let download_url = format!("/api/fs/download?path={}", path);
+
             Ok(DownloadableMeta {
-                download_url: normalized.to_string_lossy().to_string(),
+                download_url,
                 size: metadata.len(),
                 hash: check_sum.finish_hex(),
             })
@@ -298,6 +302,27 @@ impl Storage for LocalStorage {
 
             std::fs::write(&normalized, &content).map_err(|_| StorageError::OperationFailed)?;
             self.meta_from_path(&normalized)
+        }
+    }
+
+    fn upload_mode(&self) -> crate::storage::model::UploadMode {
+        // 本地存储支持 Direct 模式，直接返回文件路径
+        crate::storage::model::UploadMode::Direct
+    }
+
+    fn get_upload_info(
+        &self,
+        path: &str,
+        _size: u64,
+    ) -> impl Future<Output = Result<crate::storage::model::UploadInfo, Self::Error>> + Send {
+        async move {
+            let normalized = self.normalize_path(path)?;
+            Ok(crate::storage::model::UploadInfo {
+                upload_url: format!("file://{}", normalized.to_string_lossy()),
+                method: "PUT".to_string(),
+                form_fields: None,
+                path: path.to_string(),
+            })
         }
     }
 

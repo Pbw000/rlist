@@ -1,5 +1,8 @@
 //! 存储模块
 
+#[macro_use]
+pub mod impl_driver_marco;
+
 pub mod driver;
 pub mod model;
 pub use model::Storage;

@@ -45,6 +45,13 @@ impl From<serde_json::Error> for McloudError {
         McloudError::ParseError(format!("JSON 解析失败：{}", err))
     }
 }
+
+impl From<StorageError> for McloudError {
+    fn from(err: StorageError) -> Self {
+        McloudError::ApiError(err.to_string())
+    }
+}
+
 impl From<McloudError> for RlistError {
     fn from(err: McloudError) -> Self {
         match err {

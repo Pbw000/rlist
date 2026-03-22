@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fused.add_driver(storage, "/mcloud");
     fused.build_cache().await?;
     println!("Cache build success!");
-    let result = fused.get_meta(folder_path).await;
+    let result = fused.get_download_meta_by_path(folder_path).await;
     println!("Result:{:?}", result);
     Ok(())
 }

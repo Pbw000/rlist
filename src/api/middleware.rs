@@ -11,9 +11,6 @@ use axum::{
 
 use crate::api::state::AppState;
 
-/// 管理员路由鉴权中间件
-///
-/// 用于保护需要管理员权限的特定路由（如 /admin/*）
 pub async fn admin_auth_middleware(
     state: State<AppState>,
     request: Request<axum::body::Body>,

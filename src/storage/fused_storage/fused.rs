@@ -87,10 +87,10 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
             None => {
                 // 如果没有找到且为根目录，列出所有驱动作为目录
                 if path.is_empty() || path == "/" {
-                    let items = self
-                        .drivers()
+                    let children = self.tree.search_children("/");
+                    let items = children
                         .iter()
-                        .map(|driver| Meta::directory(format!("/{}", driver.driver_name())))
+                        .map(|driver| Meta::directory(driver.0.clone()))
                         .collect::<Vec<_>>();
                     let len = items.len() as u64;
                     Ok(FileList::new(items, len))
@@ -203,6 +203,33 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .upload_file(remaining_path, content)
                 .await
                 .map_err(|e| e.into()),
+            None => Err(RlistError::Storage(StorageError::NotFound)),
+        }
+    }
+
+    fn upload_mode(&self) -> crate::storage::model::UploadMode {
+        // 默认返回 Relay 模式
+        crate::storage::model::UploadMode::Relay
+    }
+
+    async fn get_upload_info(
+        &self,
+        path: &str,
+        size: u64,
+    ) -> Result<crate::storage::model::UploadInfo, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => {
+                // 检查驱动是否支持 Direct 模式
+                if driver.upload_mode() == crate::storage::model::UploadMode::Direct {
+                    driver
+                        .get_upload_info(remaining_path, size)
+                        .await
+                        .map_err(|e| e.into())
+                } else {
+                    // 不支持 Direct 模式，返回错误
+                    Err(RlistError::Storage(StorageError::Unsupported).into())
+                }
+            }
             None => Err(RlistError::Storage(StorageError::NotFound)),
         }
     }

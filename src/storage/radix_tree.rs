@@ -1,7 +1,8 @@
-pub(super) struct RadixTree<T> {
+#[derive(Debug, Clone)]
+pub(super) struct RadixTree<T: Clone> {
     root: Node<T>,
 }
-impl<T> RadixTree<T> {
+impl<T: Clone> RadixTree<T> {
     pub fn new() -> Self {
         RadixTree {
             root: Node {
@@ -12,7 +13,7 @@ impl<T> RadixTree<T> {
     }
 
     pub fn search<'a>(&self, key: &'a str) -> Option<(&T, &'a str)> {
-        dbg!(key);
+        // dbg!(key);
         let mut current_node = &self.root;
         let key = key.trim_matches('/');
         let mut find_idx = 0;
@@ -31,7 +32,7 @@ impl<T> RadixTree<T> {
         } else {
             return None;
         };
-        dbg!(matched);
+        // dbg!(matched);
         current_node.value.as_ref().map(|v| (v, matched))
     }
     pub fn insert(&mut self, key: &str, value: T) {
@@ -63,6 +64,22 @@ impl<T> RadixTree<T> {
 
         current_node.value = Some(value);
     }
+    pub fn search_children<'a>(&self, key: &'a str) -> &Vec<(String, Node<T>)> {
+        let key = key.trim_matches('/');
+        let mut current_node = &self.root;
+        'search_loop: for key_part in key.split('/') {
+            for (prefix, child) in &current_node.children {
+                if key_part == prefix {
+                    current_node = child;
+                    continue 'search_loop;
+                }
+            }
+            break;
+        }
+
+        &current_node.children
+    }
+
     pub fn remove(&mut self, key: &str) -> Option<T> {
         let key = key.trim_matches('/');
         let mut current_node = &mut self.root;
@@ -106,8 +123,8 @@ impl<T> RadixTree<T> {
         self.root.children.clear();
     }
 }
-
+#[derive(Debug, Clone)]
 pub struct Node<T> {
-    children: Vec<(String, Node<T>)>,
-    value: Option<T>,
+    pub children: Vec<(String, Node<T>)>,
+    pub value: Option<T>,
 }

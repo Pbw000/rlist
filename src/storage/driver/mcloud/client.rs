@@ -20,23 +20,47 @@ use tokio::sync::RwLock;
 const API_BASE: &str = "https://personal-kd-njs.yun.139.com";
 const PERSONAL_NEW_BASE: &str = "/hcy";
 
-/// 中国移动云盘存储
+/// 缓存条目 - 存储 file_id 和文件类型
+#[derive(Debug, Clone)]
+pub struct CacheEntry {
+    pub file_id: String,
+    pub file_meta: FileMeta,
+}
+
+impl CacheEntry {
+    pub fn new(file_id: String, meta: FileMeta) -> Self {
+        Self {
+            file_id,
+            file_meta: meta,
+        }
+    }
+}
+#[derive(Debug)]
 pub struct McloudStorage {
     config: McloudConfig,
     client: Arc<Client>,
-    path_cache: RwLock<RadixTree<String>>,
+    /// 缓存 path -> file_id
+    path_cache: RwLock<RadixTree<CacheEntry>>,
+}
+impl Clone for McloudStorage {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            client: Arc::clone(&self.client),
+            path_cache: RwLock::new(RadixTree::new()), // Create a new empty cache for the clone
+        }
+    }
 }
 
 impl McloudStorage {
     pub fn from_authorization(authorization: impl Into<String>) -> Self {
         let authorization = authorization.into();
         let config = McloudConfig { authorization };
-        let ret = Self {
+        Self {
             client: Arc::new(Client::new()),
             config,
             path_cache: RwLock::new(RadixTree::new()),
-        };
-        ret
+        }
     }
 }
 
@@ -76,23 +100,42 @@ impl Storage for McloudStorage {
         cursor: Option<String>,
     ) -> impl Future<Output = Result<FileList, Self::Error>> + Send {
         async move {
-            // 路径转换为 file_id
+            // 从缓存获取子目录列表
+            {
+                let cache = self.path_cache.read().await;
+                let children = cache.search_children(path);
+                if !children.is_empty() && cursor.is_none() {
+                    // 有缓存且是第一页，直接返回缓存
+                    let mut items = Vec::new();
+                    for (_, child_node) in children {
+                        if let Some(cache_entry) = &child_node.value {
+                            items.push(cache_entry.file_meta.clone());
+                        }
+                    }
+                    return Ok(FileList {
+                        total: children.len() as u64,
+                        items,
+                        next_cursor: None,
+                    });
+                }
+            }
+            // 首先尝试从缓存获取 file_id
             let file_id = if path == "/" || path.is_empty() || path == "root" {
                 "root".to_string()
             } else if let Some(id) = self.get_file_id_by_path(path).await {
                 id
             } else {
-                // 尝试直接使用 path 作为 file_id
-                path.to_string()
+                return Err(McloudError::NotFound("File not found in cache".to_string()));
             };
 
+            // 缓存未命中或需要分页，调用 API
             let response = self
-                .list_files_internal(&file_id, page_size, cursor)
+                .list_files_internal(&file_id, page_size, cursor.clone())
                 .await?;
 
-            // 更新缓存
+            // 更新路径缓存
             let parent_path = if path == "root" { "/" } else { path };
-            let entries: Vec<(String, String)> = response
+            let entries: Vec<(String, CacheEntry)> = response
                 .items
                 .iter()
                 .map(|item| {
@@ -101,7 +144,7 @@ impl Storage for McloudStorage {
                     } else {
                         format!("{}/{}", parent_path, item.name)
                     };
-                    (item_path, item.id.clone())
+                    (item_path, CacheEntry::new(item.id.clone(), item.to_meta()))
                 })
                 .collect();
             self.update_cache_batch(entries).await;
@@ -109,7 +152,6 @@ impl Storage for McloudStorage {
             Ok(response.to_file_list())
         }
     }
-
     async fn get_meta(&self, path: &str) -> Result<FileMeta, Self::Error> {
         let file_id = self
             .get_file_id_by_path(path)
@@ -171,7 +213,8 @@ impl Storage for McloudStorage {
             let meta = self.create_folder(&parent_id, &folder_name).await?;
 
             // 更新缓存
-            self.update_cache(path, meta.id.clone()).await;
+            self.update_cache(path, CacheEntry::new(meta.id.clone(), meta.to_meta()))
+                .await;
 
             Ok(meta.to_meta())
         }
@@ -207,6 +250,10 @@ impl Storage for McloudStorage {
             } else {
                 old_path.to_string()
             };
+
+            // 获取父目录 file_id 以使缓存失效
+            let parent_path = old_path.rsplit_once('/').map(|(p, _)| p).unwrap_or("/");
+            let _parent_file_id = self.get_file_id_by_path(parent_path).await;
 
             self.rename_file(&file_id, new_name).await?;
 
@@ -264,6 +311,21 @@ impl Storage for McloudStorage {
         async move { Err(McloudError::ApiError("上传操作暂未实现".to_string())) }
     }
 
+    fn upload_mode(&self) -> crate::storage::model::UploadMode {
+        crate::storage::model::UploadMode::Relay
+    }
+
+    fn get_upload_info(
+        &self,
+        _path: &str,
+        _size: u64,
+    ) -> impl Future<Output = Result<crate::storage::model::UploadInfo, Self::Error>> + Send {
+        async move {
+            // 移动云暂不支持 Direct 上传模式
+            Err(McloudError::ApiError("当前存储不支持 Direct 上传模式".to_string()).into())
+        }
+    }
+
     fn from_auth_data(json: &str) -> Result<Self, Self::Error>
     where
         Self: Sized,
@@ -288,7 +350,6 @@ impl Storage for McloudStorage {
 }
 
 impl McloudStorage {
-    /// 创建新的客户端
     pub fn new(config: McloudConfig) -> Self {
         Self {
             config,
@@ -516,7 +577,7 @@ impl McloudStorage {
 
         let request = DeleteRequest { fileIds: file_ids };
 
-        self.json_request::<serde_json::Value>(Method::POST, "/file/batchTrash", &request)
+        self.json_request::<serde_json::Value>(Method::POST, "/recyclebin/batchTrash", &request)
             .await?;
 
         Ok(())
@@ -571,23 +632,23 @@ impl McloudStorage {
         let matched = cache.search(path)?;
         if matched.1.is_empty() {
             //exact match
-            Some(matched.0.to_string())
+            Some(matched.0.file_id.to_string())
         } else {
             None
         }
     }
 
     /// 更新缓存
-    async fn update_cache(&self, path: &str, file_id: String) {
+    async fn update_cache(&self, path: &str, cache_entry: CacheEntry) {
         let mut cache = self.path_cache.write().await;
-        cache.insert(path, file_id);
+        cache.insert(path, cache_entry);
     }
 
     /// 批量更新缓存（用于列表操作）
-    async fn update_cache_batch(&self, entries: Vec<(String, String)>) {
+    async fn update_cache_batch(&self, entries: Vec<(String, CacheEntry)>) {
         let mut cache = self.path_cache.write().await;
-        for (path, file_id) in entries {
-            cache.insert(&path, file_id);
+        for (path, cache_entry) in entries {
+            cache.insert(&path, cache_entry);
         }
     }
 
@@ -618,7 +679,10 @@ impl McloudStorage {
                     format!("{}/{}", path, item.name)
                 };
 
-                all_entries.push((item_path.clone(), item.id.clone()));
+                all_entries.push((
+                    item_path.clone(),
+                    CacheEntry::new(item.id.clone(), item.to_meta()),
+                ));
                 if item.file_type == McloudFileType::Folder {
                     Box::pin(self.build_cache_recursive(&item.id, item_path)).await?;
                 }
@@ -629,7 +693,6 @@ impl McloudStorage {
                 break;
             }
         }
-        // dbg!(&all_entries);
         // 批量更新缓存
         self.update_cache_batch(all_entries).await;
 
