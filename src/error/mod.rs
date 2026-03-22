@@ -75,6 +75,8 @@ pub enum NetworkError {
 /// 序列化/反序列化错误
 #[derive(Error, Debug)]
 pub enum SerializationError {
+    #[error("解析错误")]
+    Parse,
     #[error("JSON 错误")]
     Json(#[from] serde_json::Error),
 

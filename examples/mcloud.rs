@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建 McloudStorage 实例
     let storage = McloudStorage::from_authorization(
         "cGM6MTM4ODA2MzAzMDk6ZEpjUHBYbEx8MXxSQ1N8MTc3NjY3NTUyMzc3N3xiT1hRRTZ2eUdKSWYuUnVTd3RHdlY1NWo2N2t5Z2NidTNtbnVuUW5sWTRQRDNicm01aWo2VjB6NmcxWm0wQzBDOG5Qdkl6VWhDMjgzc3NrTjdyOFI2eTJYelQxX3pQenJkdE8zbzNQX2s4V2FKUEFnLnNoemY2MHF0VHJRcU9iWUhaVU4wUlI3T1BkNzYxS2pEUS5fTEdfNGhaYUIuWjJ0T05KakRESEIxQTQt",
-    )?;
+    );
 
     // 使用统一的 Storage trait 方法
     println!("存储名称：{}", storage.name());
@@ -27,17 +27,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 file_list.items.len()
             );
             for file in file_list.items.iter() {
-                let icon = if file.file_type == rlist::FileType::Directory {
-                    "📁"
-                } else {
-                    "📄"
-                };
-                let size = if file.file_type == rlist::FileType::Directory {
+                let icon = if file.is_dir() { "📁" } else { "📄" };
+                let size = if file.is_dir() {
                     "".to_string()
                 } else {
                     file.human_size()
                 };
-                println!("  {} {} {}", icon, file.name, size);
+                match file {
+                    rlist::Meta::File { name, .. } => {
+                        println!("  {} {} {}", icon, name, size);
+                    }
+                    rlist::Meta::Directory { name, .. } => {
+                        println!("  {} {} {}", icon, name, size);
+                    }
+                }
             }
         }
         Err(e) => println!("列出文件失败：{}", e),

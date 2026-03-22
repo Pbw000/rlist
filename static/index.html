@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RList 文件管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .breadcrumb a {
+            color: white;
+            text-decoration: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .breadcrumb a:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .toolbar {
+            padding: 16px 32px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .btn-secondary:hover {
+            background: #f5f5f5;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .file-list {
+            padding: 0;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 16px 32px;
+            border-bottom: 1px solid #e9ecef;
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+
+        .file-item:hover {
+            background: #f8f9fa;
+        }
+
+        .file-item.selected {
+            background: #e7f1ff;
+        }
+
+        .file-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 16px;
+            font-size: 24px;
+        }
+
+        .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name {
+            font-size: 15px;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-meta {
+            font-size: 13px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .file-item:hover .file-actions {
+            opacity: 1;
+        }
+
+        .action-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            background: #e9ecef;
+            color: #333;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .empty-state {
+            padding: 80px 32px;
+            text-align: center;
+            color: #888;
+        }
+
+        .empty-state .icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .modal input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .modal input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: #333;
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success {
+            background: #28a745;
+        }
+
+        .toast.error {
+            background: #dc3545;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e9ecef;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .checkbox {
+            width: 20px;
+            height: 20px;
+            margin-right: 16px;
+            cursor: pointer;
+        }
+
+        .admin-panel {
+            background: #fff3cd;
+            padding: 16px 32px;
+            border-bottom: 1px solid #ffc107;
+        }
+
+        .admin-panel input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>📁 RList 文件管理</h1>
+                <div class="breadcrumb" id="breadcrumb">
+                    <a href="#" onclick="navigateTo('/')">🏠 根目录</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="admin-panel" id="adminPanel" style="display: none;">
+            <span>🔑 管理员模式</span>
+            <input type="text" id="adminKeyInput" placeholder="输入管理员密钥">
+            <button class="btn btn-primary" onclick="setAdminKey()">认证</button>
+        </div>
+
+        <div class="toolbar">
+            <button class="btn btn-primary" onclick="showNewFolderModal()">
+                📁 新建文件夹
+            </button>
+            <button class="btn btn-primary" onclick="document.getElementById('uploadInput').click()">
+                ⬆️ 上传文件
+            </button>
+            <input type="file" id="uploadInput" style="display: none;" multiple onchange="handleUpload(this.files)">
+            <button class="btn btn-secondary" onclick="refresh()">
+                🔄 刷新
+            </button>
+            <button class="btn btn-danger" id="deleteBtn" style="display: none;" onclick="deleteSelected()">
+                🗑️ 删除选中
+            </button>
+            <button class="btn btn-secondary" onclick="toggleAdminPanel()">
+                ⚙️ 管理
+            </button>
+        </div>
+
+        <div class="file-list" id="fileList">
+            <div class="loading">
+                <div class="spinner"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新建文件夹模态框 -->
+    <div class="modal-overlay" id="newFolderModal" style="display: none;">
+        <div class="modal">
+            <h2>新建文件夹</h2>
+            <input type="text" id="folderNameInput" placeholder="文件夹名称">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideNewFolderModal()">取消</button>
+                <button class="btn btn-primary" onclick="createFolder()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重命名模态框 -->
+    <div class="modal-overlay" id="renameModal" style="display: none;">
+        <div class="modal">
+            <h2>重命名</h2>
+            <input type="text" id="renameInput" placeholder="新名称">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideRenameModal()">取消</button>
+                <button class="btn btn-primary" onclick="confirmRename()">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let currentPath = '/';
+        let selectedFiles = new Set();
+        let adminKey = localStorage.getItem('rlist_admin_key') || '';
+        let filesData = [];
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            if (adminKey) {
+                document.getElementById('adminKeyInput').value = adminKey;
+            }
+            loadFiles();
+        });
+
+        // 加载文件列表
+        async function loadFiles() {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/fs/list?path=${encodeURIComponent(currentPath)}`);
+                const result = await response.json();
+
+                if (result.code === 200 && result.data) {
+                    filesData = result.data.content || [];
+                    renderFiles(filesData);
+                    updateBreadcrumb();
+                } else {
+                    fileList.innerHTML = '<div class="empty-state"><div class="icon">📂</div><p>加载失败</p></div>';
+                    showToast('加载文件列表失败：' + result.message, 'error');
+                }
+            } catch (error) {
+                fileList.innerHTML = '<div class="empty-state"><div class="icon">😕</div><p>无法连接到服务器</p></div>';
+                showToast('网络错误：' + error.message, 'error');
+            }
+        }
+
+        // 渲染文件列表
+        function renderFiles(files) {
+            const fileList = document.getElementById('fileList');
+
+            if (!files || files.length === 0) {
+                fileList.innerHTML = '<div class="empty-state"><div class="icon">📂</div><p>此目录为空</p></div>';
+                return;
+            }
+
+            // 目录排在前面
+            const dirs = files.filter(f => f.file_type === 'dir');
+            const fileItems = files.filter(f => f.file_type === 'file');
+            const sortedFiles = [...dirs, ...fileItems];
+
+            fileList.innerHTML = sortedFiles.map((file, index) => `
+                <div class="file-item" data-path="${escapeHtml(file.path)}" data-type="${file.file_type}">
+                    <input type="checkbox" class="checkbox" onchange="toggleSelection('${escapeHtml(file.path)}', this.checked)">
+                    <div class="file-icon">${file.file_type === 'dir' ? '📁' : getFileIcon(file.name)}</div>
+                    <div class="file-info">
+                        <div class="file-name">${escapeHtml(file.name)}</div>
+                        <div class="file-meta">${formatSize(file.size)}${file.modified ? ' · ' + formatDate(file.modified) : ''}</div>
+                    </div>
+                    <div class="file-actions">
+                        ${file.file_type === 'dir' ? `
+                            <button class="action-btn" onclick="enterFolder('${escapeHtml(file.path)}')">打开</button>
+                        ` : `
+                            <button class="action-btn" onclick="downloadFile('${escapeHtml(file.path)}')">下载</button>
+                        `}
+                        <button class="action-btn" onclick="showRenameModal('${escapeHtml(file.path)}', '${escapeHtml(file.name)}')">重命名</button>
+                        <button class="action-btn" onclick="deleteFile('${escapeHtml(file.path)}')">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 更新面包屑导航
+        function updateBreadcrumb() {
+            const breadcrumb = document.getElementById('breadcrumb');
+            const parts = currentPath.split('/').filter(p => p);
+            let html = '<a href="#" onclick="navigateTo(\'/\'); return false;">🏠 根目录</a>';
+
+            let path = '';
+            parts.forEach(part => {
+                path += '/' + part;
+                html += ` <span>/</span> <a href="#" onclick="navigateTo('${escapeHtml(path)}'); return false;">${escapeHtml(part)}</a>`;
+            });
+
+            breadcrumb.innerHTML = html;
+        }
+
+        // 导航到指定路径
+        function navigateTo(path) {
+            currentPath = path || '/';
+            selectedFiles.clear();
+            updateDeleteButton();
+            loadFiles();
+        }
+
+        // 进入文件夹
+        function enterFolder(path) {
+            navigateTo(path);
+        }
+
+        // 刷新
+        function refresh() {
+            loadFiles();
+        }
+
+        // 显示新建文件夹模态框
+        function showNewFolderModal() {
+            document.getElementById('newFolderModal').style.display = 'flex';
+            document.getElementById('folderNameInput').value = '';
+            document.getElementById('folderNameInput').focus();
+        }
+
+        // 隐藏新建文件夹模态框
+        function hideNewFolderModal() {
+            document.getElementById('newFolderModal').style.display = 'none';
+        }
+
+        // 创建文件夹
+        async function createFolder() {
+            const name = document.getElementById('folderNameInput').value.trim();
+            if (!name) {
+                showToast('请输入文件夹名称', 'error');
+                return;
+            }
+
+            const path = currentPath.endsWith('/') ? currentPath + name : currentPath + '/' + name;
+
+            try {
+                const response = await fetch(`${API_BASE}/fs/mkdir`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+
+                const result = await response.json();
+                if (result.code === 200) {
+                    hideNewFolderModal();
+                    showToast('文件夹创建成功', 'success');
+                    loadFiles();
+                } else {
+                    showToast('创建失败：' + result.message, 'error');
+                }
+            } catch (error) {
+                showToast('网络错误：' + error.message, 'error');
+            }
+        }
+
+        // 显示重命名模态框
+        function showRenameModal(path, name) {
+            document.getElementById('renameModal').dataset.path = path;
+            document.getElementById('renameModal').style.display = 'flex';
+            document.getElementById('renameInput').value = name;
+            document.getElementById('renameInput').focus();
+            document.getElementById('renameInput').select();
+        }
+
+        // 隐藏重命名模态框
+        function hideRenameModal() {
+            document.getElementById('renameModal').style.display = 'none';
+        }
+
+        // 确认重命名
+        async function confirmRename() {
+            const path = document.getElementById('renameModal').dataset.path;
+            const newName = document.getElementById('renameInput').value.trim();
+
+            if (!newName) {
+                showToast('请输入新名称', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/fs/rename`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ src_path: path, new_name: newName })
+                });
+
+                const result = await response.json();
+                if (result.code === 200) {
+                    hideRenameModal();
+                    showToast('重命名成功', 'success');
+                    loadFiles();
+                } else {
+                    showToast('重命名失败：' + result.message, 'error');
+                }
+            } catch (error) {
+                showToast('网络错误：' + error.message, 'error');
+            }
+        }
+
+        // 删除文件
+        async function deleteFile(path) {
+            if (!confirm(`确定要删除 "${path}" 吗？`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/fs/remove`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+
+                const result = await response.json();
+                if (result.code === 200) {
+                    showToast('删除成功', 'success');
+                    loadFiles();
+                } else {
+                    showToast('删除失败：' + result.message, 'error');
+                }
+            } catch (error) {
+                showToast('网络错误：' + error.message, 'error');
+            }
+        }
+
+        // 选择文件
+        function toggleSelection(path, checked) {
+            if (checked) {
+                selectedFiles.add(path);
+            } else {
+                selectedFiles.delete(path);
+            }
+            updateDeleteButton();
+        }
+
+        // 更新删除按钮状态
+        function updateDeleteButton() {
+            const deleteBtn = document.getElementById('deleteBtn');
+            deleteBtn.style.display = selectedFiles.size > 0 ? 'flex' : 'none';
+            deleteBtn.textContent = `🗑️ 删除选中 (${selectedFiles.size})`;
+        }
+
+        // 删除选中的文件
+        async function deleteSelected() {
+            if (selectedFiles.size === 0) return;
+
+            if (!confirm(`确定要删除选中的 ${selectedFiles.size} 个项目吗？`)) return;
+
+            const paths = Array.from(selectedFiles);
+            let successCount = 0;
+
+            for (const path of paths) {
+                try {
+                    const response = await fetch(`${API_BASE}/fs/remove`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path })
+                    });
+
+                    const result = await response.json();
+                    if (result.code === 200) successCount++;
+                } catch (error) {
+                    console.error('删除失败:', error);
+                }
+            }
+
+            selectedFiles.clear();
+            updateDeleteButton();
+            loadFiles();
+            showToast(`已删除 ${successCount}/${paths.length} 个项目`, successCount === paths.length ? 'success' : 'error');
+        }
+
+        // 下载文件
+        async function downloadFile(path) {
+            try {
+                const response = await fetch(`${API_BASE}/fs/get?path=${encodeURIComponent(path)}`);
+                const result = await response.json();
+
+                if (result.code === 200 && result.data) {
+                    window.open(result.data.url, '_blank');
+                    showToast('下载已开始', 'success');
+                } else {
+                    showToast('获取下载链接失败：' + result.message, 'error');
+                }
+            } catch (error) {
+                showToast('网络错误：' + error.message, 'error');
+            }
+        }
+
+        // 上传文件
+        async function handleUpload(files) {
+            if (files.length === 0) return;
+
+            for (const file of files) {
+                const path = currentPath.endsWith('/') ? currentPath + file.name : currentPath + '/' + file.name;
+
+                try {
+                    const response = await fetch(`${API_BASE}/fs/upload?path=${encodeURIComponent(path)}`, {
+                        method: 'PUT',
+                        body: file
+                    });
+
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        showToast(`${file.name} 上传成功`, 'success');
+                    } else {
+                        showToast(`${file.name} 上传失败：${result.message}`, 'error');
+                    }
+                } catch (error) {
+                    showToast(`${file.name} 上传错误：${error.message}`, 'error');
+                }
+            }
+
+            loadFiles();
+        }
+
+        // 设置管理员密钥
+        function setAdminKey() {
+            adminKey = document.getElementById('adminKeyInput').value.trim();
+            if (adminKey) {
+                localStorage.setItem('rlist_admin_key', adminKey);
+                showToast('管理员密钥已保存', 'success');
+            }
+        }
+
+        // 切换管理面板
+        function toggleAdminPanel() {
+            const panel = document.getElementById('adminPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // 显示提示
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+
+        // 辅助函数
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function getFileIcon(name) {
+            const ext = name.split('.').pop().toLowerCase();
+            const icons = {
+                'pdf': '📄', 'doc': '📄', 'docx': '📄',
+                'xls': '📊', 'xlsx': '📊',
+                'ppt': '📊', 'pptx': '📊',
+                'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'svg': '🖼️', 'webp': '🖼️',
+                'mp3': '🎵', 'wav': '🎵', 'flac': '🎵',
+                'mp4': '🎬', 'avi': '🎬', 'mkv': '🎬', 'mov': '🎬',
+                'zip': '📦', 'rar': '📦', '7z': '📦', 'tar': '📦', 'gz': '📦',
+                'txt': '📝', 'md': '📝', 'log': '📝',
+                'js': '💻', 'ts': '💻', 'py': '💻', 'java': '💻', 'cpp': '💻', 'c': '💻', 'go': '💻', 'rs': '💻',
+                'html': '💻', 'css': '💻', 'json': '💻', 'xml': '💻', 'yaml': '💻', 'yml': '💻',
+            };
+            return icons[ext] || '📄';
+        }
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatDate(dateStr) {
+            try {
+                return new Date(dateStr).toLocaleDateString('zh-CN');
+            } catch {
+                return dateStr;
+            }
+        }
+
+        // 回车键处理
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (document.getElementById('newFolderModal').style.display === 'flex') {
+                    createFolder();
+                } else if (document.getElementById('renameModal').style.display === 'flex') {
+                    confirmRename();
+                }
+            } else if (e.key === 'Escape') {
+                hideNewFolderModal();
+                hideRenameModal();
+            }
+        });
+    </script>
+</body>
+</html>

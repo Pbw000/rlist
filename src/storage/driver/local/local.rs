@@ -1,12 +1,14 @@
 //! 本地存储驱动实现
 
+use crate::crypto::FileChecksum;
 use crate::error::StorageError;
-use crate::storage::model::{FileContent, FileList, FileMeta, StorageDriver};
+use crate::storage::file_meta::DownloadableMeta;
+use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
 use std::future::Future;
 use std::io::SeekFrom;
 use std::path::PathBuf;
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncSeek};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 
 /// 本地存储
 pub struct LocalStorage {
@@ -38,63 +40,27 @@ impl LocalStorage {
     }
 
     fn meta_from_path(&self, path: &PathBuf) -> Result<FileMeta, StorageError> {
-        use crate::meta::{FileType, Meta};
         use chrono::DateTime;
 
         let metadata = std::fs::metadata(path).map_err(|_| StorageError::NotFound)?;
+        let modified_at = metadata.modified().ok().map(DateTime::from);
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
 
-        let file_type = if metadata.is_dir() {
-            FileType::Directory
+        let meta = if metadata.is_dir() {
+            FileMeta::Directory { name, modified_at }
         } else {
-            FileType::File
+            FileMeta::File {
+                name,
+                size: metadata.len(),
+                modified_at,
+            }
         };
-
-        let mut meta = if file_type == FileType::Directory {
-            Meta::directory(
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown"),
-                path.clone(),
-            )
-        } else {
-            Meta::file(
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown"),
-                path.clone(),
-                metadata.len(),
-            )
-        };
-
-        if let Ok(modified) = metadata.modified() {
-            meta.modified_at = Some(DateTime::from(modified));
-        }
 
         Ok(meta)
-    }
-}
-
-impl StorageDriver for LocalStorage {
-    type StorageError = crate::error::StorageError;
-
-    fn name(&self) -> &str {
-        "local"
-    }
-
-    fn handle_path(&self, path: &str) -> Result<String, Self::StorageError> {
-        let normalized = self.normalize_path(path)?;
-        Ok(normalized.to_string_lossy().to_string())
-    }
-
-    fn from_auth_data(_json: &str) -> Result<Self, Self::StorageError>
-    where
-        Self: Sized,
-    {
-        Ok(Self::new("."))
-    }
-
-    fn auth_template() -> String {
-        r#"{"type": "none"}"#.to_string()
     }
 }
 
@@ -139,9 +105,9 @@ impl FileContent for LocalFileReader {
     }
 }
 
-// ============== 统一的 Storage trait 实现 ==============
+// ============== Storage trait 实现 ==============
 
-impl crate::storage::model::Storage for LocalStorage {
+impl Storage for LocalStorage {
     type Error = StorageError;
 
     fn name(&self) -> &str {
@@ -154,6 +120,11 @@ impl crate::storage::model::Storage for LocalStorage {
 
     fn is_readonly(&self) -> bool {
         false
+    }
+
+    async fn handle_path(&self, path: &str) -> Result<FileMeta, Self::Error> {
+        let normalized = self.normalize_path(path)?;
+        self.meta_from_path(&normalized)
     }
 
     fn list_files(
@@ -192,13 +163,36 @@ impl crate::storage::model::Storage for LocalStorage {
         }
     }
 
-    fn get_download_url(
+    fn get_download_meta_by_path(
         &self,
         path: &str,
-    ) -> impl Future<Output = Result<String, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<DownloadableMeta, Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(path)?;
-            Ok(normalized.to_string_lossy().to_string())
+            let metadata = std::fs::metadata(&normalized).map_err(|_| StorageError::NotFound)?;
+
+            let mut file = File::open(&normalized)
+                .await
+                .map_err(|_| StorageError::NotFound)?;
+            let mut check_sum = FileChecksum::new();
+            let mut buffer = [0; 1024];
+
+            loop {
+                let bytes_read = file
+                    .read_exact(&mut buffer)
+                    .await
+                    .map_err(|_| StorageError::OperationFailed)?;
+                if bytes_read == 0 {
+                    break;
+                }
+                check_sum.update(&buffer[..bytes_read]);
+            }
+
+            Ok(DownloadableMeta {
+                download_url: normalized.to_string_lossy().to_string(),
+                size: metadata.len(),
+                hash: check_sum.finish_hex(),
+            })
         }
     }
 
@@ -307,18 +301,18 @@ impl crate::storage::model::Storage for LocalStorage {
         }
     }
 
-    fn from_auth_data(json: &str) -> Result<Self, Self::Error>
+    fn from_auth_data(_json: &str) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        <LocalStorage as StorageDriver>::from_auth_data(json)
+        Ok(Self::new("."))
     }
 
-    fn auth_template() -> String
+    fn auth_template(&self) -> String
     where
         Self: Sized,
     {
-        <LocalStorage as StorageDriver>::auth_template()
+        r#"{"type": "none"}"#.to_string()
     }
 }
 

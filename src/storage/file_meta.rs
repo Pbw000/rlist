@@ -4,68 +4,62 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-
-/// 文件类型枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileType {
-    /// 普通文件
-    File,
-    /// 目录
-    Directory,
-}
 
 /// 文件/目录元数据 - 最小实现
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Meta {
-    /// 文件名
-    pub name: String,
-    /// 完整路径
-    pub path: PathBuf,
-    /// 文件类型
-    pub file_type: FileType,
-    /// 文件大小（字节）
-    pub size: u64,
-    /// 修改时间
-    pub modified_at: Option<DateTime<Utc>>,
+pub enum Meta {
+    /// 文件元数据
+    File {
+        /// 文件名
+        name: String,
+        /// 文件大小（字节）
+        size: u64,
+        /// 修改时间
+        modified_at: Option<DateTime<Utc>>,
+    },
+    /// 目录元数据
+    Directory {
+        /// 目录名
+        name: String,
+        /// 修改时间
+        modified_at: Option<DateTime<Utc>>,
+    },
 }
 
 impl Meta {
     /// 创建文件元数据
-    pub fn file(name: impl Into<String>, path: PathBuf, size: u64) -> Self {
-        Self {
+    pub fn file(name: impl Into<String>, size: u64) -> Self {
+        Self::File {
             name: name.into(),
-            path,
-            file_type: FileType::File,
             size,
             modified_at: None,
         }
     }
 
     /// 创建目录元数据
-    pub fn directory(name: impl Into<String>, path: PathBuf) -> Self {
-        Self {
+    pub fn directory(name: impl Into<String>) -> Self {
+        Self::Directory {
             name: name.into(),
-            path,
-            file_type: FileType::Directory,
-            size: 0,
             modified_at: None,
         }
     }
 
     /// 判断是否为文件
     pub fn is_file(&self) -> bool {
-        self.file_type == FileType::File
+        matches!(self, Meta::File { .. })
     }
 
     /// 判断是否为目录
     pub fn is_dir(&self) -> bool {
-        self.file_type == FileType::Directory
+        matches!(self, Meta::Directory { .. })
     }
 
     /// 获取人类可读的大小
     pub fn human_size(&self) -> String {
-        let s = self.size;
+        let s = match self {
+            Meta::File { size, .. } => *size,
+            Meta::Directory { .. } => 0,
+        };
         const KB: u64 = 1024;
         const MB: u64 = KB * 1024;
         const GB: u64 = MB * 1024;
@@ -79,4 +73,11 @@ impl Meta {
             s => format!("{:.2} TB", s as f64 / TB as f64),
         }
     }
+}
+/// 可下载文件元数据
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadableMeta {
+    pub download_url: String,
+    pub size: u64,
+    pub hash: String,
 }

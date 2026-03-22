@@ -12,6 +12,7 @@ impl<T> RadixTree<T> {
     }
 
     pub fn search<'a>(&self, key: &'a str) -> Option<(&T, &'a str)> {
+        dbg!(key);
         let mut current_node = &self.root;
         let key = key.trim_matches('/');
         let mut find_idx = 0;
@@ -28,28 +29,10 @@ impl<T> RadixTree<T> {
         let matched = if find_idx > 0 {
             &key[find_idx - 1..]
         } else {
-            ""
+            return None;
         };
+        dbg!(matched);
         current_node.value.as_ref().map(|v| (v, matched))
-    }
-}
-
-pub struct Node<T> {
-    children: Vec<(String, Node<T>)>,
-    value: Option<T>,
-}
-pub struct RadixTreeBuilder<T> {
-    root: Node<T>,
-}
-
-impl<T> RadixTreeBuilder<T> {
-    pub fn new() -> Self {
-        RadixTreeBuilder {
-            root: Node {
-                children: Vec::new(),
-                value: None,
-            },
-        }
     }
     pub fn insert(&mut self, key: &str, value: T) {
         let key = key.trim_matches('/');
@@ -80,7 +63,51 @@ impl<T> RadixTreeBuilder<T> {
 
         current_node.value = Some(value);
     }
-    pub fn build(self) -> RadixTree<T> {
-        RadixTree { root: self.root }
+    pub fn remove(&mut self, key: &str) -> Option<T> {
+        let key = key.trim_matches('/');
+        let mut current_node = &mut self.root;
+        let mut path: Vec<(&mut Node<T>, usize)> = Vec::new();
+
+        for key_part in key.split('/') {
+            let mut found = false;
+            let mut child_index = None;
+            for (i, (prefix, _)) in current_node.children.iter().enumerate() {
+                if key_part == prefix {
+                    child_index = Some(i);
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return None;
+            }
+            if let Some(idx) = child_index {
+                path.push((unsafe { &mut *(current_node as *mut _) }, idx));
+                current_node = &mut current_node.children[idx].1;
+            }
+        }
+
+        let value = current_node.value.take();
+
+        // Clean up empty nodes
+        while let Some((parent, idx)) = path.pop() {
+            if current_node.children.is_empty() && current_node.value.is_none() {
+                parent.children.remove(idx);
+                current_node = parent;
+            } else {
+                break;
+            }
+        }
+
+        value
     }
+
+    pub fn clear(&mut self) {
+        self.root.children.clear();
+    }
+}
+
+pub struct Node<T> {
+    children: Vec<(String, Node<T>)>,
+    value: Option<T>,
 }

@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+use crate::error::{NetworkError, RlistError, SerializationError, StorageError};
+
 #[derive(Error, Debug)]
 pub enum McloudError {
     #[error("认证失败：{0}")]
@@ -41,5 +43,18 @@ impl From<reqwest::Error> for McloudError {
 impl From<serde_json::Error> for McloudError {
     fn from(err: serde_json::Error) -> Self {
         McloudError::ParseError(format!("JSON 解析失败：{}", err))
+    }
+}
+impl From<McloudError> for RlistError {
+    fn from(err: McloudError) -> Self {
+        match err {
+            McloudError::AuthError(_e) => RlistError::Network(NetworkError::RequestFailed),
+            McloudError::TokenExpired => RlistError::Network(NetworkError::RequestFailed),
+            McloudError::ApiError(_e) => RlistError::Network(NetworkError::RequestFailed),
+            McloudError::NetworkError(_e) => RlistError::Network(NetworkError::RequestFailed),
+            McloudError::NotFound(_e) => RlistError::Storage(StorageError::NotFound),
+            McloudError::DownloadError(_e) => RlistError::Network(NetworkError::RequestFailed),
+            McloudError::ParseError(_e) => RlistError::Serialization(SerializationError::Parse),
+        }
     }
 }

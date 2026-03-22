@@ -1,5 +1,6 @@
 //! 中国移动云盘类型定义
 
+use crate::storage::file_meta::Meta;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -29,36 +30,27 @@ pub struct McloudFileMeta {
 
 impl McloudFileMeta {
     /// 转换为统一的 Meta 类型
-    pub fn to_meta(&self) -> crate::meta::Meta {
-        use crate::meta::{FileType, Meta};
-
-        let file_type = match self.file_type {
-            McloudFileType::File => FileType::File,
-            McloudFileType::Folder => FileType::Directory,
-        };
-
-        let mut meta = if file_type == FileType::Directory {
-            Meta::directory(&self.name, std::path::PathBuf::from(&self.id))
-        } else {
-            Meta::file(
-                &self.name,
-                std::path::PathBuf::from(&self.id),
-                self.size.unwrap_or(0),
-            )
-        };
-
-        // 解析修改时间
-        if let Some(updated) = &self.updated_at {
-            meta.modified_at = DateTime::parse_from_rfc3339(updated)
+    pub fn to_meta(&self) -> Meta {
+        let modified_at = self.updated_at.as_ref().and_then(|updated| {
+            DateTime::parse_from_rfc3339(updated)
                 .map(|d| d.with_timezone(&Utc))
-                .ok();
-        }
+                .ok()
+        });
 
-        meta
+        match self.file_type {
+            McloudFileType::File => Meta::File {
+                name: self.name.clone(),
+                size: self.size.unwrap_or(0),
+                modified_at,
+            },
+            McloudFileType::Folder => Meta::Directory {
+                name: self.name.clone(),
+                modified_at,
+            },
+        }
     }
 }
-
-/// 文件列表响应
+#[allow(non_snake_case)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileListResponse {
     pub items: Vec<McloudFileMeta>,
@@ -86,10 +78,8 @@ impl FileListResponse {
     }
 }
 
-/// API 响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
-    pub code: Option<String>,
     pub message: Option<String>,
     pub data: Option<T>,
     pub success: Option<bool>,
@@ -97,12 +87,10 @@ pub struct ApiResponse<T> {
 
 impl<T> ApiResponse<T> {
     pub fn into_result(self) -> Result<T, String> {
-        if self.success.unwrap_or(false) || self.code.as_deref() == Some("0") {
+        if self.success.unwrap_or(false) {
             self.data.ok_or_else(|| "No data in response".to_string())
         } else {
-            Err(self
-                .message
-                .unwrap_or_else(|| self.code.unwrap_or_default()))
+            Err(self.message.unwrap_or("Unknown Error".to_string()))
         }
     }
 }

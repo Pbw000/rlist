@@ -6,10 +6,12 @@ use std::error::Error;
 use std::future::Future;
 
 use tokio::io::{AsyncRead, AsyncSeek};
-use tokio::sync::RwLock;
+
+use crate::error::RlistError;
+use crate::storage::file_meta::DownloadableMeta;
 
 // 重新导出 meta 模块的类型
-pub use crate::meta::{FileType, Meta};
+pub use super::file_meta::Meta;
 
 /// 文件元数据（统一抽象类型）
 pub type FileMeta = Meta;
@@ -50,14 +52,31 @@ pub trait FileContent: AsyncRead + AsyncSeek + Send + Sync {
 
 /// 存储操作统一 trait
 pub trait Storage: Send + Sync {
-    type Error: Send + Sync + Error + 'static;
+    type Error: Send + Sync + Error + 'static + Into<RlistError>;
 
+    /// 存储名称（人类可读）
     fn name(&self) -> &str;
-    fn driver_name(&self) -> &str;
+
+    /// 驱动名称（标识符）
+    fn driver_name(&self) -> &str {
+        self.name()
+    }
+
+    /// 是否只读
     fn is_readonly(&self) -> bool {
         false
     }
 
+    /// 构建缓存（可选实现）
+    fn build_cache(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        async { Ok(()) }
+    }
+
+    /// 处理路径，返回元数据
+    fn handle_path(&self, path: &str)
+    -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
+
+    /// 列出文件
     fn list_files(
         &self,
         path: &str,
@@ -65,90 +84,65 @@ pub trait Storage: Send + Sync {
         cursor: Option<String>,
     ) -> impl Future<Output = Result<FileList, Self::Error>> + Send;
 
+    /// 获取元数据
     fn get_meta(&self, path: &str) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
-    fn get_download_url(
+    /// 获取可下载元数据
+    fn get_download_meta_by_path(
         &self,
         path: &str,
-    ) -> impl Future<Output = Result<String, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<DownloadableMeta, Self::Error>> + Send;
 
+    /// 下载文件
     fn download_file(
         &self,
         path: &str,
     ) -> impl Future<Output = Result<Box<dyn FileContent>, Self::Error>> + Send;
 
+    /// 创建文件夹
     fn create_folder(
         &self,
         path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
+    /// 删除
     fn delete(&self, path: &str) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
+    /// 重命名
     fn rename(
         &self,
         old_path: &str,
         new_name: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
+    /// 复制
     fn copy(
         &self,
         source_path: &str,
         dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
+    /// 移动
     fn move_(
         &self,
         source_path: &str,
         dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
+    /// 上传文件
     fn upload_file(
         &self,
         path: &str,
         content: Vec<u8>,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
+    /// 从认证数据创建实例
     fn from_auth_data(json: &str) -> Result<Self, Self::Error>
     where
         Self: Sized;
 
-    fn auth_template() -> String
+    /// 认证模板
+    fn auth_template(&self) -> String
     where
         Self: Sized;
-}
-
-/// 存储驱动 trait（向后兼容）
-pub trait StorageDriver: Send + Sync {
-    type StorageError: Send + Sync + Error + 'static;
-    fn name(&self) -> &str;
-    fn handle_path(&self, path: &str) -> Result<String, Self::StorageError>;
-
-    fn from_auth_data(json: &str) -> Result<Self, Self::StorageError>
-    where
-        Self: Sized;
-
-    fn auth_template() -> String
-    where
-        Self: Sized;
-
-    fn is_readonly(&self) -> bool {
-        false
-    }
-}
-
-/// 存储注册表
-pub struct StorageRegistry<T: StorageDriver> {
-    drivers: Vec<RwLock<T>>,
-}
-
-impl<T: StorageDriver> StorageRegistry<T> {
-    pub fn new() -> Self {
-        todo!()
-    }
-}
-
-impl<T: StorageDriver> Default for StorageRegistry<T> {
-    fn default() -> Self {
-        todo!()
-    }
 }
