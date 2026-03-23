@@ -90,8 +90,8 @@ impl AppState {
     pub async fn get_registry(&self) -> tokio::sync::RwLockReadGuard<'_, StorageRegistry> {
         self.inner.registry.read().await
     }
-    pub async fn build_cache(&self) -> Result<(), RlistError> {
-        self.inner.registry.write().await.build_cache().await
+    pub async fn build_cache(&self, path: &str) -> Result<(), RlistError> {
+        self.inner.registry.write().await.build_cache(path).await
     }
     /// 验证管理员密钥
     pub fn verify_admin_key(&self, key: &str) -> bool {

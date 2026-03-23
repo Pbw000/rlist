@@ -1,6 +1,8 @@
+use std::collections::VecDeque;
+
 #[derive(Debug, Clone)]
 pub(super) struct RadixTree<T: Clone> {
-    root: Node<T>,
+    pub root: Node<T>,
 }
 impl<T: Clone> RadixTree<T> {
     pub fn new() -> Self {
@@ -122,9 +124,69 @@ impl<T: Clone> RadixTree<T> {
     pub fn clear(&mut self) {
         self.root.children.clear();
     }
+    pub fn iter(&self) -> RadixTreeIterable<'_, T> {
+        RadixTreeIterable::new(self)
+    }
+    pub fn iter_path(&self) -> RadixTreePathIterable<'_, T> {
+        RadixTreePathIterable::new(self)
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Node<T> {
     pub children: Vec<(String, Node<T>)>,
     pub value: Option<T>,
+}
+pub struct RadixTreeIterable<'a, T: Clone> {
+    stack: VecDeque<&'a Node<T>>,
+}
+impl<'a, T: Clone> RadixTreeIterable<'a, T> {
+    pub fn new(tree: &'a RadixTree<T>) -> Self {
+        let mut stack = VecDeque::new();
+        stack.push_back(&tree.root);
+        RadixTreeIterable { stack }
+    }
+}
+impl<'a, T: Clone> Iterator for RadixTreeIterable<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(node) = self.stack.pop_front() {
+            self.stack
+                .extend(node.children.iter().map(|(_, child)| child));
+            if let Some(value) = &node.value {
+                return Some(value);
+            }
+        }
+        None
+    }
+}
+pub struct RadixTreePathIterable<'a, T: Clone> {
+    stack: VecDeque<(&'a Node<T>, String)>,
+}
+
+impl<'a, T: Clone> RadixTreePathIterable<'a, T> {
+    pub fn new(tree: &'a RadixTree<T>) -> Self {
+        let mut stack = VecDeque::new();
+        stack.push_back((&tree.root, String::new()));
+        RadixTreePathIterable { stack }
+    }
+}
+
+impl<'a, T: Clone> Iterator for RadixTreePathIterable<'a, T> {
+    type Item = (String, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((node, path)) = self.stack.pop_front() {
+            for (prefix, child) in &node.children {
+                let mut new_path = path.clone();
+                new_path.push('/');
+                new_path.push_str(prefix);
+                self.stack.push_back((child, new_path));
+            }
+            if let Some(value) = &node.value {
+                return Some((path, value));
+            }
+        }
+        None
+    }
 }

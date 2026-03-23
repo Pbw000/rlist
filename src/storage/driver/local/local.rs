@@ -25,7 +25,7 @@ impl LocalStorage {
         let canonical_root = self
             .root
             .canonicalize()
-            .map_err(|_| StorageError::NotFound)?;
+            .map_err(|e| StorageError::NotFound(e.to_string()))?;
         // dbg!(&canonical_root);
 
         let canonical_path = full_path
@@ -34,7 +34,7 @@ impl LocalStorage {
         // dbg!(&canonical_path);
 
         if !canonical_path.starts_with(&canonical_root) {
-            return Err(StorageError::NotFound);
+            return Err(StorageError::NotFound("路径遍历被阻止".to_string()));
         }
 
         Ok(canonical_path)
@@ -43,7 +43,8 @@ impl LocalStorage {
     fn meta_from_path(&self, path: &PathBuf) -> Result<FileMeta, StorageError> {
         use chrono::DateTime;
 
-        let metadata = std::fs::metadata(path).map_err(|_| StorageError::NotFound)?;
+        let metadata =
+            std::fs::metadata(path).map_err(|e| StorageError::NotFound(e.to_string()))?;
         let modified_at = metadata.modified().ok().map(DateTime::from);
         let name = path
             .file_name()
@@ -137,7 +138,8 @@ impl Storage for LocalStorage {
         async move {
             let dir_path = self.normalize_path(path)?;
 
-            let entries = std::fs::read_dir(&dir_path).map_err(|_| StorageError::NotFound)?;
+            let entries =
+                std::fs::read_dir(&dir_path).map_err(|e| StorageError::NotFound(e.to_string()))?;
 
             let mut items = Vec::new();
             let mut total = 0u64;
@@ -170,11 +172,12 @@ impl Storage for LocalStorage {
     ) -> impl Future<Output = Result<DownloadableMeta, Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(path)?;
-            let metadata = std::fs::metadata(&normalized).map_err(|_| StorageError::NotFound)?;
+            let metadata = std::fs::metadata(&normalized)
+                .map_err(|e| StorageError::NotFound(e.to_string()))?;
 
             let mut file = File::open(&normalized)
                 .await
-                .map_err(|_| StorageError::NotFound)?;
+                .map_err(|e| StorageError::NotFound(e.to_string()))?;
             let mut check_sum = FileChecksum::new();
             let mut buffer = [0; 1024];
 
@@ -182,7 +185,7 @@ impl Storage for LocalStorage {
                 let bytes_read = file
                     .read(&mut buffer)
                     .await
-                    .map_err(|_| StorageError::OperationFailed)?;
+                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
                 if bytes_read == 0 {
                     break;
                 }
@@ -206,11 +209,12 @@ impl Storage for LocalStorage {
     ) -> impl Future<Output = Result<Box<dyn FileContent>, Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(path)?;
-            let metadata = std::fs::metadata(&normalized).map_err(|_| StorageError::NotFound)?;
+            let metadata = std::fs::metadata(&normalized)
+                .map_err(|e| StorageError::NotFound(e.to_string()))?;
 
             let file = File::open(&normalized)
                 .await
-                .map_err(|_| StorageError::NotFound)?;
+                .map_err(|e| StorageError::NotFound(e.to_string()))?;
             let reader: Box<dyn FileContent> =
                 Box::new(LocalFileReader::new(file, Some(metadata.len())));
             Ok(reader)
@@ -223,7 +227,8 @@ impl Storage for LocalStorage {
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(path)?;
-            std::fs::create_dir_all(&normalized).map_err(|_| StorageError::OperationFailed)?;
+            std::fs::create_dir_all(&normalized)
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             self.meta_from_path(&normalized)
         }
     }
@@ -232,9 +237,11 @@ impl Storage for LocalStorage {
         async move {
             let normalized = self.normalize_path(path)?;
             if normalized.is_dir() {
-                std::fs::remove_dir_all(&normalized).map_err(|_| StorageError::OperationFailed)?;
+                std::fs::remove_dir_all(&normalized)
+                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             } else {
-                std::fs::remove_file(&normalized).map_err(|_| StorageError::OperationFailed)?;
+                std::fs::remove_file(&normalized)
+                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             }
             Ok(())
         }
@@ -247,10 +254,13 @@ impl Storage for LocalStorage {
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(old_path)?;
-            let parent = normalized.parent().ok_or(StorageError::OperationFailed)?;
+            let parent = normalized
+                .parent()
+                .ok_or_else(|| StorageError::OperationFailed("无法获取父目录".to_string()))?;
             let new_path = parent.join(new_name);
 
-            std::fs::rename(&normalized, &new_path).map_err(|_| StorageError::OperationFailed)?;
+            std::fs::rename(&normalized, &new_path)
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             self.meta_from_path(&new_path)
         }
     }
@@ -265,9 +275,11 @@ impl Storage for LocalStorage {
             let dest = self.normalize_path(dest_path)?;
 
             if source.is_dir() {
-                copy_dir_recursive(&source, &dest).map_err(|_| StorageError::OperationFailed)?;
+                copy_dir_recursive(&source, &dest)
+                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             } else {
-                std::fs::copy(&source, &dest).map_err(|_| StorageError::OperationFailed)?;
+                std::fs::copy(&source, &dest)
+                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             }
 
             self.meta_from_path(&dest)
@@ -283,7 +295,8 @@ impl Storage for LocalStorage {
             let source = self.normalize_path(source_path)?;
             let dest = self.normalize_path(dest_path)?;
 
-            std::fs::rename(&source, &dest).map_err(|_| StorageError::OperationFailed)?;
+            std::fs::rename(&source, &dest)
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             self.meta_from_path(&dest)
         }
     }
@@ -297,10 +310,12 @@ impl Storage for LocalStorage {
             let normalized = self.normalize_path(path)?;
 
             if let Some(parent) = normalized.parent() {
-                std::fs::create_dir_all(parent).map_err(|_| StorageError::OperationFailed)?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             }
 
-            std::fs::write(&normalized, &content).map_err(|_| StorageError::OperationFailed)?;
+            std::fs::write(&normalized, &content)
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             self.meta_from_path(&normalized)
         }
     }

@@ -5,7 +5,6 @@
 use std::error::Error;
 use std::future::Future;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncSeek};
 
@@ -76,7 +75,6 @@ pub struct UploadInfo {
     pub path: String,
 }
 
-#[async_trait]
 pub trait Storage: Send + Sync {
     type Error: Send + Sync + Error + 'static + Into<RlistError>;
 
@@ -93,8 +91,15 @@ pub trait Storage: Send + Sync {
         false
     }
 
-    /// 构建缓存（可选实现）
-    fn build_cache(&self) -> impl Future<Output = Result<(), Self::Error>> + Send {
+    /// 构建指定目录的缓存（可选实现）
+    ///
+    /// # 参数
+    /// * `path` - 需要构建缓存的目录路径，空字符串表示根目录
+    ///
+    /// # 返回
+    /// * `Ok(())` - 缓存构建成功
+    /// * `Err(Self::Error)` - 缓存构建失败
+    fn build_cache(&self, _path: &str) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
     }
 

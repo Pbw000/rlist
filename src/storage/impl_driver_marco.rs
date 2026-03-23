@@ -43,14 +43,14 @@ macro_rules! impl_storage_enum {
             impl $crate::Storage for $enum_name {
                 type Error = $error_type;
 
-                async fn build_cache(&self) -> Result<(), Self::Error> {
+                async fn build_cache(&self, path: &str) -> Result<(), Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {
-                            <$ty as $crate::Storage>::build_cache(driver).await.map_err(|e| Into::<$error_type>::into(e))
+                            <$ty as $crate::Storage>::build_cache(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
                             $enum_name::[<$variant $ext>](driver) => {
-                                <$ext<$ty> as $crate::Storage>::build_cache(driver).await.map_err(|e| Into::<$error_type>::into(e))
+                                <$ext<$ty> as $crate::Storage>::build_cache(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
                     }
@@ -254,7 +254,7 @@ macro_rules! impl_storage_enum {
                         }
                     )+
                     Err($crate::error::RlistError::Storage(
-                        $crate::error::StorageError::InvalidConfig,
+                        $crate::error::StorageError::InvalidConfig("无法从认证数据初始化存储".to_string()),
                     ))
                 }
 
@@ -452,7 +452,7 @@ macro_rules! impl_storage_enum {
                     }
                 )+
                 Err($crate::error::RlistError::Storage(
-                    $crate::error::StorageError::InvalidConfig,
+                    $crate::error::StorageError::InvalidConfig("无法从认证数据初始化存储".to_string()),
                 ))
             }
 

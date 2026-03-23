@@ -47,7 +47,7 @@ pub fn generate_salt(len: usize) -> RlistResult<Vec<u8>> {
     let rng = SystemRandom::new();
     let mut salt = vec![0u8; len];
     rng.fill(&mut salt)
-        .map_err(|_e| crate::error::RlistError::from(CryptoError::KeyDerivation))?;
+        .map_err(|e| CryptoError::KeyDerivation(e.to_string()))?;
     Ok(salt)
 }
 
@@ -127,7 +127,7 @@ pub fn generate_token(len: usize) -> RlistResult<String> {
     let rng = SystemRandom::new();
     let mut bytes = vec![0u8; len];
     rng.fill(&mut bytes)
-        .map_err(|_e| crate::error::RlistError::from(CryptoError::KeyDerivation))?;
+        .map_err(|e| CryptoError::KeyDerivation(e.to_string()))?;
     Ok(hex::encode(bytes))
 }
 
@@ -142,7 +142,7 @@ pub fn base64_decode(data: &str) -> RlistResult<Vec<u8>> {
     use base64::{Engine as _, engine::general_purpose};
     Ok(general_purpose::STANDARD
         .decode(data)
-        .map_err(|_e| crate::error::RlistError::from(CryptoError::Encryption))?)
+        .map_err(|e| CryptoError::Encryption(e.to_string()))?)
 }
 
 #[cfg(test)]

@@ -25,8 +25,8 @@ impl<T: Storage> PartialStorage<T> {
 
 impl<T: Storage> Storage for PartialStorage<T> {
     type Error = T::Error;
-    async fn build_cache(&self) -> Result<(), Self::Error> {
-        self.inner.build_cache().await
+    async fn build_cache(&self, path: &str) -> Result<(), Self::Error> {
+        self.inner.build_cache(&self.handle_path(path)).await
     }
     fn name(&self) -> &str {
         self.inner.name()

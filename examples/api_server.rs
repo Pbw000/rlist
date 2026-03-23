@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
 
     tracing::info!("已添加移动云盘存储：mcloud");
-    state.build_cache().await?;
+    state.build_cache("/").await?;
     start_server(state, &addr).await?;
 
     Ok(())

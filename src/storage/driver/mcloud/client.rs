@@ -79,8 +79,35 @@ impl Storage for McloudStorage {
         false
     }
 
-    async fn build_cache(&self) -> Result<(), McloudError> {
-        self.build_cache_recursive("root", "/".to_string()).await
+    async fn build_cache(&self, path: &str) -> Result<(), McloudError> {
+        if path.is_empty() || path == "/" {
+            // 根路径，直接构建
+            self.build_cache_recursive("root", "/".to_string()).await?;
+            return Ok(());
+        }
+
+        let cache = self.path_cache.read().await;
+        // 搜索最长公共前缀
+        if let Some((cached_entry, remainder)) = cache.search(path) {
+            // remainder 是未匹配的后缀部分，如 "/subdir1/subdir2"
+            let remainder = remainder.trim_start_matches('/');
+            if remainder.is_empty() {
+                // 完全匹配，无需构建
+                return Ok(());
+            }
+
+            // 克隆 file_id 以避免借用问题
+            let ancestor_file_id = cached_entry.file_id.clone();
+            drop(cache);
+            self.build_cache_from_ancestor(&ancestor_file_id, path.to_string(), remainder)
+                .await?;
+        } else {
+            // 没有匹配任何缓存，从 root 开始构建
+            drop(cache);
+            self.build_cache_recursive("root", "/".to_string()).await?;
+        }
+
+        Ok(())
     }
 
     async fn handle_path(&self, path: &str) -> Result<FileMeta, Self::Error> {
@@ -180,7 +207,7 @@ impl Storage for McloudStorage {
             } else if path == "/" || path.is_empty() {
                 "root".to_string()
             } else {
-                path.to_string()
+                return Err(McloudError::NotFound("File not found!".into()));
             };
             let meta = self.get_download_meta_by_path(&file_id).await?;
             let reader: Box<dyn FileContent> = Box::new(McloudFileReader::new(
@@ -400,7 +427,18 @@ impl McloudStorage {
         self.handle_response(response).await
     }
 
-    /// 处理响应
+    /// 处理 API 响应并返回 ApiResponse 包装的类型
+    async fn json_request_with_response<T: for<'de> DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: impl Serialize,
+    ) -> Result<T, McloudError> {
+        let response = self.request(method, path).json(&body).send().await?;
+        self.handle_api_response(response).await
+    }
+
+    /// 处理响应（直接返回数据）
     async fn handle_response<T: DeserializeOwned>(
         &self,
         response: reqwest::Response,
@@ -408,7 +446,7 @@ impl McloudStorage {
         let status = response.status();
 
         if status == StatusCode::UNAUTHORIZED {
-            return Err(McloudError::TokenExpired);
+            return Err(McloudError::TokenExpired("HTTP 401 未授权".to_string()));
         }
 
         let text = response
@@ -420,6 +458,34 @@ impl McloudStorage {
             return Err(McloudError::ApiError(format!("HTTP {}: {}", status, text)));
         }
 
+        let api_response: ApiResponse<T> = serde_json::from_str(&text).map_err(|e| {
+            McloudError::ParseError(format!("JSON 解析失败：{} - 响应：{}", e, text))
+        })?;
+
+        api_response.into_result().map_err(McloudError::ApiError)
+    }
+
+    /// 处理 API 响应（返回原始数据结构，由调用者处理 data 字段）
+    async fn handle_api_response<T: for<'de> DeserializeOwned>(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<T, McloudError> {
+        let status = response.status();
+
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(McloudError::TokenExpired("HTTP 401 未授权".to_string()));
+        }
+
+        let text = response
+            .text()
+            .await
+            .map_err(|e| McloudError::ApiError(format!("读取响应失败：{}", e)))?;
+
+        if !status.is_success() {
+            return Err(McloudError::ApiError(format!("HTTP {}: {}", status, text)));
+        }
+
+        // 尝试解析为 ApiResponse<T> 并提取 data
         let api_response: ApiResponse<T> = serde_json::from_str(&text).map_err(|e| {
             McloudError::ParseError(format!("JSON 解析失败：{} - 响应：{}", e, text))
         })?;
@@ -500,7 +566,7 @@ impl McloudStorage {
 
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED {
-            return Err(McloudError::TokenExpired);
+            return Err(McloudError::TokenExpired("HTTP 401 未授权".to_string()));
         }
         #[allow(non_snake_case)]
         #[derive(Deserialize)]
@@ -543,10 +609,6 @@ impl McloudStorage {
             r#type: "folder",
         };
 
-        #[derive(Deserialize)]
-        struct CreateFolderResponse {
-            data: FolderData,
-        }
         #[allow(non_snake_case)]
         #[derive(Deserialize)]
         struct FolderData {
@@ -554,13 +616,13 @@ impl McloudStorage {
             fileName: String,
         }
 
-        let response: CreateFolderResponse = self
-            .json_request(Method::POST, "/file/create", &request)
+        let response: FolderData = self
+            .json_request_with_response(Method::POST, "/file/create", &request)
             .await?;
 
         Ok(McloudFileMeta {
-            id: response.data.fileId,
-            name: response.data.fileName,
+            id: response.fileId,
+            name: response.fileName,
             file_type: McloudFileType::Folder,
             size: Some(0),
             updated_at: None,
@@ -661,6 +723,86 @@ impl McloudStorage {
     async fn clear_cache(&self) {
         let mut cache = self.path_cache.write().await;
         cache.clear();
+    }
+
+    /// 从已缓存的祖先节点开始构建缓存
+    /// `target_path` 是目标完整路径，`remainder` 是未匹配的后缀部分（如 "subdir1/subdir2"）
+    async fn build_cache_from_ancestor(
+        &self,
+        ancestor_file_id: &str,
+        target_path: String,
+        remainder: &str,
+    ) -> Result<(), McloudError> {
+        // 计算祖先路径
+        let ancestor_path = if target_path.ends_with(remainder) && !remainder.is_empty() {
+            let end = target_path.len() - remainder.len();
+            target_path[..end].trim_end_matches('/').to_string()
+        } else {
+            String::new()
+        };
+        let ancestor_path = if ancestor_path.is_empty() {
+            "/".to_string()
+        } else {
+            ancestor_path
+        };
+
+        // 逐层构建剩余路径
+        let mut current_file_id = ancestor_file_id.to_string();
+        let mut current_path = ancestor_path;
+        let mut remaining_parts: Vec<&str> =
+            remainder.split('/').filter(|s| !s.is_empty()).collect();
+
+        while !remaining_parts.is_empty() {
+            let target_name = remaining_parts.remove(0);
+
+            // 获取当前目录下的所有子项
+            let mut cursor = None;
+            let mut found = false;
+
+            loop {
+                let response = self
+                    .list_files_internal(&current_file_id, 100, cursor)
+                    .await?;
+
+                // 查找目标子项
+                for item in &response.items {
+                    if item.name == target_name {
+                        // 找到目标，更新当前路径和 file_id
+                        current_path = if current_path == "/" {
+                            format!("/{}", item.name)
+                        } else {
+                            format!("{}/{}", current_path, item.name)
+                        };
+                        current_file_id = item.id.clone();
+                        found = true;
+
+                        // 如果是文件夹，构建其完整缓存
+                        if item.file_type == McloudFileType::Folder {
+                            // 递归构建子目录缓存
+                            self.build_cache_recursive(&item.id, current_path.clone())
+                                .await?;
+                        }
+                        break;
+                    }
+                }
+
+                if found {
+                    break;
+                }
+
+                if response.hasMore.unwrap_or(false) {
+                    cursor = response.nextPageCursor;
+                } else {
+                    // 没有找到目标，提前退出
+                    return Err(McloudError::NotFound(format!(
+                        "Path '{}' not found",
+                        target_path
+                    )));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     async fn build_cache_recursive(&self, file_id: &str, path: String) -> Result<(), McloudError> {

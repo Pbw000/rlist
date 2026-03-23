@@ -67,7 +67,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 if path.is_empty() || path == "/" {
                     Ok(Meta::directory("/"))
                 } else {
-                    Err(RlistError::Storage(StorageError::NotFound))
+                    Err(RlistError::Storage(StorageError::NotFound(
+                        "路径未找到".to_string(),
+                    )))
                 }
             }
         }
@@ -95,7 +97,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                     let len = items.len() as u64;
                     Ok(FileList::new(items, len))
                 } else {
-                    Err(RlistError::Storage(StorageError::NotFound))
+                    Err(RlistError::Storage(StorageError::NotFound(
+                        "路径未找到".to_string(),
+                    )))
                 }
             }
         }
@@ -106,7 +110,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
             Some((driver, remaining_path)) => {
                 driver.get_meta(remaining_path).await.map_err(|e| e.into())
             }
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -119,20 +125,36 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .get_download_meta_by_path(remaining_path)
                 .await
                 .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
-    async fn build_cache(&self) -> Result<(), Self::Error> {
+    async fn build_cache(&self, path: &str) -> Result<(), Self::Error> {
         let mut joinset = tokio::task::JoinSet::new();
-        for driver in &self.drivers {
-            let driver = driver.clone();
-            joinset.spawn(async move { driver.build_cache().await });
+        let path = path.trim_end_matches('/');
+        if path.is_empty() {
+            for driver in self.drivers() {
+                let driver = driver.clone();
+                joinset.spawn(async move { driver.build_cache("/").await });
+            }
+        } else {
+            for (tree_path, driver) in self.tree.iter_path() {
+                if path.starts_with(&tree_path) {
+                    let driver = driver.clone();
+                    let rel_path = path[tree_path.len()..].to_string();
+                    joinset.spawn(async move { driver.build_cache(&rel_path).await });
+                }
+            }
         }
+
         while let Some(res) = joinset.join_next().await {
             if let Err(e) = res {
-                eprintln!("Error building cache: {:?}", e);
-                return Err(RlistError::Storage(StorageError::OperationFailed));
+                return Err(RlistError::Storage(StorageError::OperationFailed(format!(
+                    "构建缓存失败: {}",
+                    e
+                ))));
             }
         }
         Ok(())
@@ -144,7 +166,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .download_file(remaining_path)
                 .await
                 .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -154,7 +178,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .create_folder(remaining_path)
                 .await
                 .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -163,7 +189,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
             Some((driver, remaining_path)) => {
                 driver.delete(remaining_path).await.map_err(|e| e.into())
             }
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -173,7 +201,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .rename(remaining_path, new_name)
                 .await
                 .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -183,7 +213,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .copy(remaining_source, dest_path)
                 .await
                 .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -193,7 +225,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .move_(remaining_source, dest_path)
                 .await
                 .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -203,7 +237,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .upload_file(remaining_path, content)
                 .await
                 .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
@@ -227,15 +263,22 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                         .map_err(|e| e.into())
                 } else {
                     // 不支持 Direct 模式，返回错误
-                    Err(RlistError::Storage(StorageError::Unsupported).into())
+                    Err(RlistError::Storage(StorageError::Unsupported(
+                        "不支持 Direct 上传模式".to_string(),
+                    ))
+                    .into())
                 }
             }
-            None => Err(RlistError::Storage(StorageError::NotFound)),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
         }
     }
 
     fn from_auth_data(_json: &str) -> Result<Self, Self::Error> {
-        Err(RlistError::Storage(StorageError::Unsupported))
+        Err(RlistError::Storage(StorageError::Unsupported(
+            "不支持从认证数据初始化".to_string(),
+        )))
     }
 
     fn auth_template(&self) -> String {

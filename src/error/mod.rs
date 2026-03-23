@@ -35,23 +35,23 @@ pub enum RlistError {
 /// 存储后端相关错误
 #[derive(Error, Debug)]
 pub enum StorageError {
-    #[error("存储未找到")]
-    NotFound,
+    #[error("存储未找到：{0}")]
+    NotFound(String),
 
-    #[error("存储已存在")]
-    AlreadyExists,
+    #[error("存储已存在：{0}")]
+    AlreadyExists(String),
 
-    #[error("权限拒绝")]
-    PermissionDenied,
+    #[error("权限拒绝：{0}")]
+    PermissionDenied(String),
 
-    #[error("存储配置无效")]
-    InvalidConfig,
+    #[error("存储配置无效：{0}")]
+    InvalidConfig(String),
 
-    #[error("存储操作失败")]
-    OperationFailed,
+    #[error("存储操作失败：{0}")]
+    OperationFailed(String),
 
-    #[error("不支持的操作")]
-    Unsupported,
+    #[error("不支持的操作：{0}")]
+    Unsupported(String),
 
     #[error("{0}")]
     Custom(String),
@@ -59,87 +59,88 @@ pub enum StorageError {
 /// 网络相关错误
 #[derive(Error, Debug)]
 pub enum NetworkError {
-    #[error("请求失败")]
-    RequestFailed,
+    #[error("请求失败：{0}")]
+    RequestFailed(String),
 
-    #[error("连接超时")]
-    Timeout,
+    #[error("连接超时：{0}")]
+    Timeout(String),
 
-    #[error("无效 URL")]
-    InvalidUrl,
+    #[error("无效 URL: {0}")]
+    InvalidUrl(String),
 
-    #[error("HTTP 错误")]
-    Http,
+    #[error("HTTP 错误：{0}")]
+    Http(String),
 
-    #[error("TLS 错误")]
-    TlsError,
+    #[error("TLS 错误：{0}")]
+    TlsError(String),
 }
 
 /// 序列化/反序列化错误
 #[derive(Error, Debug)]
 pub enum SerializationError {
-    #[error("解析错误")]
-    Parse,
+    #[error("解析错误：{0}")]
+    Parse(String),
+
     #[error("JSON 错误")]
     Json(#[from] serde_json::Error),
 
-    #[error("Postcard 错误")]
-    Postcard,
+    #[error("Postcard 错误：{0}")]
+    Postcard(String),
 
-    #[error("无效数据格式")]
-    InvalidData,
+    #[error("无效数据格式：{0}")]
+    InvalidData(String),
 }
 
 /// 加密相关错误
 #[derive(Error, Debug)]
 pub enum CryptoError {
-    #[error("密钥派生失败")]
-    KeyDerivation,
+    #[error("密钥派生失败：{0}")]
+    KeyDerivation(String),
 
-    #[error("加密失败")]
-    Encryption,
+    #[error("加密失败：{0}")]
+    Encryption(String),
 
-    #[error("解密失败")]
-    Decryption,
+    #[error("解密失败：{0}")]
+    Decryption(String),
 
-    #[error("签名验证失败")]
-    SignatureInvalid,
+    #[error("签名验证失败：{0}")]
+    SignatureInvalid(String),
 
-    #[error("哈希错误")]
-    Hash,
+    #[error("哈希错误：{0}")]
+    Hash(String),
 }
 
 /// 路径相关错误
 #[derive(Error, Debug)]
 pub enum PathError {
-    #[error("无效路径")]
-    InvalidPath,
+    #[error("无效路径：{0}")]
+    InvalidPath(String),
 
-    #[error("路径遍历攻击被阻止")]
-    TraversalAttempt,
+    #[error("路径遍历攻击被阻止：{0}")]
+    TraversalAttempt(String),
 
-    #[error("路径解析失败")]
-    ParseFailed,
+    #[error("路径解析失败：{0}")]
+    ParseFailed(String),
 
-    #[error("根路径错误")]
-    RootPath,
+    #[error("根路径错误：{0}")]
+    RootPath(String),
 }
 
 impl From<reqwest::Error> for RlistError {
     fn from(err: reqwest::Error) -> Self {
         if err.is_timeout() {
-            RlistError::Network(NetworkError::Timeout)
+            RlistError::Network(NetworkError::Timeout(err.to_string()))
         } else if err.is_request() {
-            RlistError::Network(NetworkError::RequestFailed)
+            RlistError::Network(NetworkError::RequestFailed(err.to_string()))
         } else {
-            RlistError::Network(NetworkError::RequestFailed)
+            RlistError::Network(NetworkError::RequestFailed(err.to_string()))
         }
     }
 }
 
 impl From<postcard::Error> for RlistError {
-    fn from(_: postcard::Error) -> Self {
-        RlistError::Serialization(SerializationError::Postcard)
+    fn from(err: postcard::Error) -> Self {
+        RlistError::Serialization(SerializationError::Postcard(err.to_string()))
     }
 }
 

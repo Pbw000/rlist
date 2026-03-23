@@ -9,8 +9,8 @@ pub enum McloudError {
     #[error("认证失败：{0}")]
     AuthError(String),
 
-    #[error("Token 已过期")]
-    TokenExpired,
+    #[error("Token 已过期：{0}")]
+    TokenExpired(String),
 
     #[error("API 请求失败：{0}")]
     ApiError(String),
@@ -55,13 +55,13 @@ impl From<StorageError> for McloudError {
 impl From<McloudError> for RlistError {
     fn from(err: McloudError) -> Self {
         match err {
-            McloudError::AuthError(_e) => RlistError::Network(NetworkError::RequestFailed),
-            McloudError::TokenExpired => RlistError::Network(NetworkError::RequestFailed),
-            McloudError::ApiError(_e) => RlistError::Network(NetworkError::RequestFailed),
-            McloudError::NetworkError(_e) => RlistError::Network(NetworkError::RequestFailed),
-            McloudError::NotFound(_e) => RlistError::Storage(StorageError::NotFound),
-            McloudError::DownloadError(_e) => RlistError::Network(NetworkError::RequestFailed),
-            McloudError::ParseError(_e) => RlistError::Serialization(SerializationError::Parse),
+            McloudError::AuthError(e) => RlistError::Network(NetworkError::RequestFailed(e)),
+            McloudError::TokenExpired(e) => RlistError::Network(NetworkError::RequestFailed(e)),
+            McloudError::ApiError(e) => RlistError::Network(NetworkError::RequestFailed(e)),
+            McloudError::NetworkError(e) => RlistError::Network(NetworkError::RequestFailed(e)),
+            McloudError::NotFound(e) => RlistError::Storage(StorageError::NotFound(e)),
+            McloudError::DownloadError(e) => RlistError::Network(NetworkError::RequestFailed(e)),
+            McloudError::ParseError(e) => RlistError::Serialization(SerializationError::Parse(e)),
         }
     }
 }
