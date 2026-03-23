@@ -16,7 +16,6 @@ pub async fn admin_auth_middleware(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    // 检查是否配置了管理员密钥
     let admin_key = request
         .headers()
         .get("X-Admin-Key")
@@ -27,7 +26,5 @@ pub async fn admin_auth_middleware(
             return Ok(next.run(request).await);
         }
     }
-
-    // 如果没有有效的管理员密钥，返回 401
     Err((StatusCode::UNAUTHORIZED, "需要管理员权限"))
 }

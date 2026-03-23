@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+use crate::auth::auth::AuthConfig;
 use crate::{
     Storage,
     error::RlistError,
@@ -24,16 +25,19 @@ pub struct AppStateInner {
     pub storage_names: RwLock<HashMap<String, String>>,
     /// 管理员密钥
     pub admin_key: String,
+    /// 认证配置
+    pub auth_config: Arc<AuthConfig>,
 }
 
 impl AppState {
     /// 创建新的应用状态
-    pub fn new(admin_key: String) -> Self {
+    pub fn new(admin_key: String, auth_config: Arc<AuthConfig>) -> Self {
         Self {
             inner: Arc::new(AppStateInner {
                 registry: RwLock::new(StorageRegistry::new()),
                 storage_names: RwLock::new(HashMap::new()),
                 admin_key,
+                auth_config,
             }),
         }
     }

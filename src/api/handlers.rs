@@ -10,6 +10,35 @@ use serde::{Deserialize, Serialize};
 use crate::storage::model::{Meta, Storage};
 use crate::{api::state::AppState, storage::model::UploadInfoParams};
 
+/// 列出文件和目录请求参数
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    pub path: Option<String>,
+    pub page: Option<u32>,
+    pub per_page: Option<u32>,
+    pub storage: Option<String>,
+}
+
+/// 文件操作请求
+#[derive(Debug, Deserialize)]
+pub struct FsOperation {
+    pub path: String,
+}
+
+/// 重命名请求
+#[derive(Debug, Deserialize)]
+pub struct RenameRequest {
+    pub src_path: String,
+    pub new_name: String,
+}
+
+/// 移动/复制请求
+#[derive(Debug, Deserialize)]
+pub struct MoveCopyRequest {
+    pub src_path: String,
+    pub dst_path: String,
+}
+
 /// API 响应包装器
 #[derive(Debug, Serialize)]
 pub struct ApiResponse<T: Serialize> {
@@ -41,41 +70,6 @@ impl<T: Serialize> IntoResponse for ApiResponse<T> {
     fn into_response(self) -> Response {
         Json(self).into_response()
     }
-}
-
-/// 文件列表请求参数
-#[derive(Debug, Deserialize)]
-pub struct ListQuery {
-    pub path: Option<String>,
-    pub page: Option<u32>,
-    pub per_page: Option<u32>,
-    pub storage: Option<String>,
-}
-
-/// 文件操作请求
-#[derive(Debug, Deserialize)]
-pub struct FsOperation {
-    pub path: String,
-}
-
-/// 路径导航请求
-#[derive(Debug, Deserialize)]
-pub struct PathNavigateRequest {
-    pub path: String,
-}
-
-/// 重命名请求
-#[derive(Debug, Deserialize)]
-pub struct RenameRequest {
-    pub src_path: String,
-    pub new_name: String,
-}
-
-/// 移动/复制请求
-#[derive(Debug, Deserialize)]
-pub struct MoveCopyRequest {
-    pub src_path: String,
-    pub dst_path: String,
 }
 
 /// 上传文件响应
@@ -261,130 +255,6 @@ pub async fn list_files(
         }
         Err(e) => ApiResponse::error(500, format!("列出文件失败：{}", e)),
     }
-}
-
-/// 路径导航 - 支持浏览器文件路径导航
-pub async fn navigate_path(
-    State(state): State<AppState>,
-    Json(req): Json<PathNavigateRequest>,
-) -> impl IntoResponse {
-    let path = &req.path;
-    let registry_guard = state.inner.registry.read().await;
-
-    // 构建路径层级
-    let mut breadcrumbs: Vec<NavBreadcrumb> = Vec::new();
-
-    // 添加根目录
-    breadcrumbs.push(NavBreadcrumb {
-        name: "根目录".to_string(),
-        path: "/".to_string(),
-        is_current: path == "/",
-    });
-
-    // 解析路径层级
-    if path != "/" && !path.is_empty() {
-        let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        let mut current_path = String::new();
-
-        for (i, part) in parts.iter().enumerate() {
-            if part.is_empty() {
-                continue;
-            }
-
-            if current_path.is_empty() {
-                current_path = format!("/{}", part);
-            } else {
-                current_path = format!("{}/{}", current_path, part);
-            }
-
-            breadcrumbs.push(NavBreadcrumb {
-                name: part.to_string(),
-                path: current_path.clone(),
-                is_current: i == parts.len() - 1,
-            });
-        }
-    }
-
-    // 获取当前路径的文件列表
-    let content = match registry_guard.list_files(path, 100, None).await {
-        Ok(list) => list
-            .items
-            .into_iter()
-            .map(|m| meta_to_file_info(m, path))
-            .collect(),
-        Err(_) => Vec::new(),
-    };
-
-    let resp = NavResponse {
-        breadcrumbs,
-        content,
-        current_path: path.clone(),
-    };
-
-    ApiResponse::success(resp)
-}
-
-/// 获取父目录列表 - 用于选择目标路径
-pub async fn get_parent_dirs(
-    State(state): State<AppState>,
-    Query(query): Query<ListQuery>,
-) -> impl IntoResponse {
-    let path = query.path.as_deref().unwrap_or("/");
-    let registry_guard = state.inner.registry.read().await;
-
-    // 构建父目录列表
-    let mut parent_dirs: Vec<DirInfo> = Vec::new();
-
-    // 添加根目录
-    parent_dirs.push(DirInfo {
-        name: "根目录".to_string(),
-        path: "/".to_string(),
-    });
-
-    // 解析当前路径的父目录
-    if path != "/" && !path.is_empty() {
-        let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        let mut current_path = String::new();
-
-        for part in parts.iter() {
-            if part.is_empty() {
-                continue;
-            }
-
-            if current_path.is_empty() {
-                current_path = format!("/{}", part);
-            } else {
-                current_path = format!("{}/{}", current_path, part);
-            }
-
-            // 只添加到当前路径的父目录，不包括当前路径本身
-            if current_path != path {
-                parent_dirs.push(DirInfo {
-                    name: part.to_string(),
-                    path: current_path.clone(),
-                });
-            }
-        }
-    }
-
-    // 获取当前目录下的子目录（用于选择子目录作为目标）
-    if let Ok(list) = registry_guard.list_files(path, 100, None).await {
-        for item in list.items {
-            if let Meta::Directory { name, .. } = item {
-                let item_path = if path.ends_with('/') || path == "/" {
-                    format!("{}{}", path, name)
-                } else {
-                    format!("{}/{}", path, name)
-                };
-                parent_dirs.push(DirInfo {
-                    name: name.clone(),
-                    path: item_path,
-                });
-            }
-        }
-    }
-
-    ApiResponse::success(parent_dirs)
 }
 
 /// 获取文件信息
@@ -668,27 +538,74 @@ pub struct StorageInfo {
     pub status: String,
 }
 
-// ==================== 路径导航响应类型 ====================
+// ==================== 认证接口 ====================
 
-/// 导航面包屑
-#[derive(Debug, Serialize)]
-pub struct NavBreadcrumb {
-    pub name: String,
-    pub path: String,
-    pub is_current: bool,
+/// 注册请求
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    pub username: String,
+    pub password: String,
 }
 
-/// 目录信息（用于选择目标路径）
-#[derive(Debug, Serialize)]
-pub struct DirInfo {
-    pub name: String,
-    pub path: String,
+/// 登录请求
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
 }
 
-/// 路径导航响应
+/// 登录响应
 #[derive(Debug, Serialize)]
-pub struct NavResponse {
-    pub breadcrumbs: Vec<NavBreadcrumb>,
-    pub content: Vec<FileInfo>,
-    pub current_path: String,
+pub struct LoginResponse {
+    pub token: String,
+}
+
+/// 注册响应
+#[derive(Debug, Serialize)]
+pub struct RegisterResponse {
+    pub message: String,
+}
+
+/// 用户注册
+#[axum::debug_handler]
+pub async fn register(
+    State(state): State<AppState>,
+    Json(payload): Json<RegisterRequest>,
+) -> ApiResponse<RegisterResponse> {
+    match state
+        .inner
+        .auth_config
+        .register(payload.username, payload.password)
+        .await
+    {
+        Ok(_user_id) => ApiResponse::success(RegisterResponse {
+            message: "注册成功".to_string(),
+        }),
+        Err((status, msg)) => ApiResponse::error(status.as_u16() as i32, msg),
+    }
+}
+
+/// 用户登录
+#[axum::debug_handler]
+pub async fn login(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> ApiResponse<LoginResponse> {
+    match state
+        .inner
+        .auth_config
+        .login(payload.username, payload.password)
+        .await
+    {
+        Ok(token) => ApiResponse::success(LoginResponse { token }),
+        Err((status, msg)) => ApiResponse::error(status.as_u16() as i32, msg),
+    }
+}
+
+/// 获取当前用户信息
+#[axum::debug_handler]
+pub async fn get_current_user() -> ApiResponse<serde_json::Value> {
+    ApiResponse::success(serde_json::json!({
+        "message": "已认证"
+    }))
 }

@@ -1,6 +1,9 @@
 use rlist::PartialStorage;
 use rlist::api::{ApiConfig, AppState, start_server};
+use rlist::auth::auth::AuthConfig;
+use rlist::auth::user_store::UserCredentialsStore;
 use rlist::storage::driver::local::local::LocalStorage;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +17,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     tracing::info!("API 配置：{:?}", config);
-    let state = AppState::new(config.admin_key.clone());
+
+    // 创建用户凭证数据库
+    let credentials_store = UserCredentialsStore::new("users.db").await?;
+    tracing::info!("用户凭证数据库已初始化");
+
+    // 创建认证配置
+    let auth_config = Arc::new(AuthConfig::random(vec![], credentials_store).await);
+
+    let state = AppState::new(config.admin_key.clone(), auth_config);
     let local_storage = LocalStorage::new(r"C:\Users\pang_\Downloads");
     state
         .add_storage("local_disk", "/local", local_storage)
