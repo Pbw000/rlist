@@ -27,6 +27,11 @@ pub enum McloudError {
     #[error("解析错误：{0}")]
     ParseError(String),
 }
+impl From<String> for McloudError {
+    fn from(err: String) -> Self {
+        McloudError::ApiError(err)
+    }
+}
 
 impl From<reqwest::Error> for McloudError {
     fn from(err: reqwest::Error) -> Self {

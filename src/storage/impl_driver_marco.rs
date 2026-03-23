@@ -218,27 +218,61 @@ macro_rules! impl_storage_enum {
                     }
                 }
 
-                async fn get_upload_info(&self, path: &str, size: u64) -> Result<$crate::storage::model::UploadInfo, Self::Error> {
+                async fn get_upload_info(&self, params: $crate::storage::model::UploadInfoParams) -> Result<$crate::storage::model::UploadInfo, Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {
-                            <$ty as $crate::Storage>::get_upload_info(driver, path, size).await.map_err(|e| Into::<$error_type>::into(e))
+                            <$ty as $crate::Storage>::get_upload_info(driver, params.clone()).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
                             $enum_name::[<$variant $ext>](driver) => {
-                                <$ext<$ty> as $crate::Storage>::get_upload_info(driver, path, size).await.map_err(|e| Into::<$error_type>::into(e))
+                                <$ext<$ty> as $crate::Storage>::get_upload_info(driver, params.clone()).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
                     }
                 }
 
-                async fn upload_file(&self, path: &str, content: Vec<u8>) -> Result<$crate::FileMeta, Self::Error> {
+                async fn complete_upload(
+                    &self,
+                    path: &str,
+                    upload_id: &str,
+                    file_id: &str,
+                    content_hash: &str,
+                ) -> Result<Option<$crate::FileMeta>, Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {
-                            <$ty as $crate::Storage>::upload_file(driver, path, content).await.map_err(|e| Into::<$error_type>::into(e))
+                            <$ty as $crate::Storage>::complete_upload(driver, path, upload_id, file_id, content_hash).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
                             $enum_name::[<$variant $ext>](driver) => {
-                                <$ext<$ty> as $crate::Storage>::upload_file(driver, path, content).await.map_err(|e| Into::<$error_type>::into(e))
+                                <$ext<$ty> as $crate::Storage>::complete_upload(driver, path, upload_id, file_id, content_hash).await.map_err(|e| Into::<$error_type>::into(e))
+                            },
+                        )+
+                    }
+                }
+
+                async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+                    &self,
+                    path: &str,
+                    content: R,
+                    param: $crate::storage::model::UploadInfoParams,
+                ) -> Result<$crate::FileMeta, Self::Error> {
+                    match self {
+                        $($enum_name::$variant(driver) => {
+                            let inner_param = $crate::storage::model::UploadInfoParams {
+                                path: path.to_string(),
+                                size: param.size,
+                                hash: param.hash,
+                            };
+                            <$ty as $crate::Storage>::upload_file(driver, path, content, inner_param).await.map_err(|e| Into::<$error_type>::into(e))
+                        },)+
+                        $(
+                            $enum_name::[<$variant $ext>](driver) => {
+                                let inner_param = $crate::storage::model::UploadInfoParams {
+                                    path: path.to_string(),
+                                    size: param.size,
+                                    hash: param.hash,
+                                };
+                                <$ext<$ty> as $crate::Storage>::upload_file(driver, path, content, inner_param).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
                     }
@@ -422,20 +456,25 @@ macro_rules! impl_storage_enum {
                 }
             }
 
-            async fn get_upload_info(&self, path: &str, size: u64) -> Result<$crate::storage::model::UploadInfo, Self::Error> {
+            async fn get_upload_info(&self, params: $crate::storage::model::UploadInfoParams) -> Result<$crate::storage::model::UploadInfo, Self::Error> {
                 match self {
                     $($enum_name::$variant(driver) => {
-                        <$ty as $crate::Storage>::get_upload_info(driver, path, size)
+                        <$ty as $crate::Storage>::get_upload_info(driver, params.clone())
                             .await
                             .map_err(|e| Into::<$error_type>::into(e))
                     },)+
                 }
             }
 
-            async fn upload_file(&self, path: &str, content: Vec<u8>) -> Result<$crate::FileMeta, Self::Error> {
+            async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+                &self,
+                path: &str,
+                content: R,
+                size: Option<u64>,
+            ) -> Result<$crate::FileMeta, Self::Error> {
                 match self {
                     $($enum_name::$variant(driver) => {
-                        <$ty as $crate::Storage>::upload_file(driver, path, content)
+                        <$ty as $crate::Storage>::upload_file(driver, path, content, size)
                             .await
                             .map_err(|e| Into::<$error_type>::into(e))
                     },)+

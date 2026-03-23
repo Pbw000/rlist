@@ -24,7 +24,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .route("/fs/copy", post(handlers::copy))
         .route("/fs/move", post(handlers::move_file))
         .route("/fs/upload", put(handlers::upload_file))
-        .route("/fs/upload-info", get(handlers::get_upload_info))
+        .route("/fs/upload-info", post(handlers::get_upload_info))
+        .route("/fs/upload/complete", post(handlers::complete_upload))
         // 路径导航接口
         .route("/fs/navigate", post(handlers::navigate_path))
         .route("/fs/parent-dirs", get(handlers::get_parent_dirs));

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::error::{RlistError, StorageError};
 use crate::storage::file_meta::Meta;
-use crate::storage::model::{FileContent, FileList};
+use crate::storage::model::{FileContent, FileList, UploadInfoParams};
 use crate::{Storage, storage::radix_tree::RadixTree};
 
 pub struct FusedStorage<T: Storage> {
@@ -23,7 +23,10 @@ impl<T: Storage> FusedStorage<T> {
         self.drivers.push(driver.clone());
         self.tree.insert(prefix, driver);
     }
-
+    pub fn add_driver_arc(&mut self, driver: Arc<T>, prefix: &str) {
+        self.drivers.push(driver.clone());
+        self.tree.insert(prefix, driver);
+    }
     pub fn get_driver<'a>(&'a self, path: &'a str) -> Option<(&'a Arc<T>, &'a str)> {
         self.tree.search(path)
     }
@@ -87,7 +90,6 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .await
                 .map_err(|e| e.into()),
             None => {
-                // 如果没有找到且为根目录，列出所有驱动作为目录
                 if path.is_empty() || path == "/" {
                     let children = self.tree.search_children("/");
                     let items = children
@@ -145,6 +147,9 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                     let driver = driver.clone();
                     let rel_path = path[tree_path.len()..].to_string();
                     joinset.spawn(async move { driver.build_cache(&rel_path).await });
+                } else if tree_path.starts_with(path) {
+                    let driver = driver.clone();
+                    joinset.spawn(async move { driver.build_cache("/").await });
                 }
             }
         }
@@ -231,12 +236,24 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         }
     }
 
-    async fn upload_file(&self, path: &str, content: Vec<u8>) -> Result<Meta, Self::Error> {
+    async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+        &self,
+        path: &str,
+        content: R,
+        param: UploadInfoParams,
+    ) -> Result<Meta, Self::Error> {
         match self.get_driver(path) {
-            Some((driver, remaining_path)) => driver
-                .upload_file(remaining_path, content)
-                .await
-                .map_err(|e| e.into()),
+            Some((driver, remaining_path)) => {
+                let remaining_param = UploadInfoParams {
+                    path: remaining_path.to_string(),
+                    size: param.size,
+                    hash: param.hash,
+                };
+                driver
+                    .upload_file(remaining_path, content, remaining_param)
+                    .await
+                    .map_err(|e| e.into())
+            }
             None => Err(RlistError::Storage(StorageError::NotFound(
                 "路径未找到".to_string(),
             ))),
@@ -250,15 +267,18 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
 
     async fn get_upload_info(
         &self,
-        path: &str,
-        size: u64,
+        params: crate::storage::model::UploadInfoParams,
     ) -> Result<crate::storage::model::UploadInfo, Self::Error> {
-        match self.get_driver(path) {
+        match self.get_driver(&params.path) {
             Some((driver, remaining_path)) => {
                 // 检查驱动是否支持 Direct 模式
                 if driver.upload_mode() == crate::storage::model::UploadMode::Direct {
                     driver
-                        .get_upload_info(remaining_path, size)
+                        .get_upload_info(crate::storage::model::UploadInfoParams {
+                            path: remaining_path.to_string(),
+                            size: params.size,
+                            hash: params.hash,
+                        })
                         .await
                         .map_err(|e| e.into())
                 } else {
@@ -269,6 +289,24 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                     .into())
                 }
             }
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn complete_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        file_id: &str,
+        content_hash: &str,
+    ) -> Result<Option<crate::storage::model::FileMeta>, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => driver
+                .complete_upload(remaining_path, upload_id, file_id, content_hash)
+                .await
+                .map_err(|e| e.into()),
             None => Err(RlistError::Storage(StorageError::NotFound(
                 "路径未找到".to_string(),
             ))),

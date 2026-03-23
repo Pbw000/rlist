@@ -23,16 +23,15 @@ const PERSONAL_NEW_BASE: &str = "/hcy";
 /// 缓存条目 - 存储 file_id 和文件类型
 #[derive(Debug, Clone)]
 pub struct CacheEntry {
-    pub file_id: String,
-    pub file_meta: FileMeta,
+    pub file_meta: McloudFileMeta,
 }
 
 impl CacheEntry {
-    pub fn new(file_id: String, meta: FileMeta) -> Self {
-        Self {
-            file_id,
-            file_meta: meta,
-        }
+    pub fn new(meta: McloudFileMeta) -> Self {
+        Self { file_meta: meta }
+    }
+    pub fn file_id(&self) -> &str {
+        &self.file_meta.id
     }
 }
 #[derive(Debug)]
@@ -75,10 +74,6 @@ impl Storage for McloudStorage {
         "mcloud"
     }
 
-    fn is_readonly(&self) -> bool {
-        false
-    }
-
     async fn build_cache(&self, path: &str) -> Result<(), McloudError> {
         if path.is_empty() || path == "/" {
             // 根路径，直接构建
@@ -97,8 +92,9 @@ impl Storage for McloudStorage {
             }
 
             // 克隆 file_id 以避免借用问题
-            let ancestor_file_id = cached_entry.file_id.clone();
+            let ancestor_file_id = cached_entry.file_id().to_string();
             drop(cache);
+            // dbg!(&ancestor_file_id);
             self.build_cache_from_ancestor(&ancestor_file_id, path.to_string(), remainder)
                 .await?;
         } else {
@@ -111,13 +107,8 @@ impl Storage for McloudStorage {
     }
 
     async fn handle_path(&self, path: &str) -> Result<FileMeta, Self::Error> {
-        let file_id = self
-            .get_file_id_by_path(path)
-            .await
-            .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
-        dbg!(&file_id);
-        let meta = self.get_file_meta(&file_id).await?;
-        Ok(meta.to_meta())
+        let meta = self.get_meta(&path).await?;
+        Ok(meta)
     }
 
     fn list_files(
@@ -126,6 +117,8 @@ impl Storage for McloudStorage {
         page_size: u32,
         cursor: Option<String>,
     ) -> impl Future<Output = Result<FileList, Self::Error>> + Send {
+        // dbg!(&path);
+
         async move {
             // 从缓存获取子目录列表
             {
@@ -136,7 +129,7 @@ impl Storage for McloudStorage {
                     let mut items = Vec::new();
                     for (_, child_node) in children {
                         if let Some(cache_entry) = &child_node.value {
-                            items.push(cache_entry.file_meta.clone());
+                            items.push(cache_entry.file_meta.to_meta());
                         }
                     }
                     return Ok(FileList {
@@ -171,7 +164,7 @@ impl Storage for McloudStorage {
                     } else {
                         format!("{}/{}", parent_path, item.name)
                     };
-                    (item_path, CacheEntry::new(item.id.clone(), item.to_meta()))
+                    (item_path, CacheEntry::new(item.clone()))
                 })
                 .collect();
             self.update_cache_batch(entries).await;
@@ -185,7 +178,7 @@ impl Storage for McloudStorage {
             .await
             .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
 
-        let meta = self.get_file_meta(&file_id).await?;
+        let meta = self.get_file_meta_by_path(&file_id).await?;
         Ok(meta.to_meta())
     }
 
@@ -240,8 +233,7 @@ impl Storage for McloudStorage {
             let meta = self.create_folder(&parent_id, &folder_name).await?;
 
             // 更新缓存
-            self.update_cache(path, CacheEntry::new(meta.id.clone(), meta.to_meta()))
-                .await;
+            self.update_cache(path, CacheEntry::new(meta.clone())).await;
 
             Ok(meta.to_meta())
         }
@@ -287,8 +279,7 @@ impl Storage for McloudStorage {
             // 清除旧缓存
             self.remove_cache(old_path).await;
 
-            // 重新获取并更新缓存
-            let meta = self.get_file_meta(&file_id).await?;
+            let meta = self.get_file_meta_by_path(&parent_path).await?;
             Ok(meta.to_meta())
         }
     }
@@ -315,7 +306,7 @@ impl Storage for McloudStorage {
 
             self.copy_file(vec![source_id], &dest_id).await?;
 
-            let meta = self.get_file_meta(&source_id_clone).await?;
+            let meta = self.get_file_meta_by_path(&source_id_clone).await?;
             Ok(meta.to_meta())
         }
     }
@@ -329,28 +320,177 @@ impl Storage for McloudStorage {
         async move { Err(McloudError::ApiError("移动操作暂未实现".to_string())) }
     }
 
-    fn upload_file(
+    async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
         &self,
         _path: &str,
-        _content: Vec<u8>,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
-        // TODO: 实现上传操作
-        async move { Err(McloudError::ApiError("上传操作暂未实现".to_string())) }
+        content: R,
+        param: crate::storage::model::UploadInfoParams,
+    ) -> Result<FileMeta, Self::Error> {
+        // 解析路径，获取文件名和父目录
+        let path = &param.path;
+        let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+        let file_name = parts
+            .last()
+            .ok_or(McloudError::ApiError("无效的文件路径".to_string()))?;
+
+        // 获取父目录 file_id
+        let parent_file_id = if parts.len() >= 2 {
+            let parent_path = parts[..parts.len() - 1].join("/");
+            self.get_file_id_by_path(&parent_path)
+                .await
+                .unwrap_or_else(|| "root".to_string())
+        } else {
+            "root".to_string()
+        };
+
+        let file_size = param.size;
+        // dbg!(&param);
+        // 1. 创建文件记录
+        let create_result = self
+            .create_upload_record(&parent_file_id, file_name, file_size, &param.hash)
+            .await?;
+
+        if !create_result.upload_url.is_empty() {
+            self.upload_to_eos(&create_result.upload_url, content)
+                .await?;
+
+            // 3. 提交上传
+            self.complete_upload(
+                path,
+                &create_result.upload_id,
+                &create_result.file_id,
+                &param.hash,
+            )
+            .await?
+            .ok_or_else(|| McloudError::ApiError("complete upload returned None".to_string()))?;
+        };
+
+        // 更新缓存
+        let file_path = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{}", path)
+        };
+        self.build_cache(&file_path).await?;
+        self.get_meta(path).await
     }
 
     fn upload_mode(&self) -> crate::storage::model::UploadMode {
-        crate::storage::model::UploadMode::Relay
+        crate::storage::model::UploadMode::Direct
     }
 
     fn get_upload_info(
         &self,
-        _path: &str,
-        _size: u64,
+        params: crate::storage::model::UploadInfoParams,
     ) -> impl Future<Output = Result<crate::storage::model::UploadInfo, Self::Error>> + Send {
         async move {
-            // 移动云暂不支持 Direct 上传模式
-            Err(McloudError::ApiError("当前存储不支持 Direct 上传模式".to_string()).into())
+            let parts: Vec<&str> = params.path.trim_start_matches('/').split('/').collect();
+            let file_name = parts
+                .last()
+                .ok_or(McloudError::ApiError("无效的文件路径".to_string()))?;
+            let parent_file_id = if parts.len() >= 2 {
+                let parent_path = parts[..parts.len() - 1].join("/");
+                let _ = self.build_cache(&parent_path).await;
+
+                // 从缓存获取父目录 file_id
+                self.get_file_id_by_path(&parent_path)
+                    .await
+                    .unwrap_or_else(|| "root".to_string())
+            } else {
+                "root".to_string()
+            };
+
+            // 1. 创建文件记录，获取上传 URL
+            let create_result = self
+                .create_upload_record(&parent_file_id, file_name, params.size, &params.hash)
+                .await?;
+
+            // 检查是否是秒传
+            if create_result.upload_url.is_empty() {
+                self.build_cache(&params.path).await.ok();
+                Ok(crate::storage::model::UploadInfo {
+                    upload_url: "about:blank".to_string(),
+                    method: "POST".to_string(),
+                    form_fields: None,
+                    headers: None,
+                    complete_url: None,
+                })
+            } else {
+                // 构建上传请求头
+                let mut headers = std::collections::HashMap::new();
+                headers.insert(
+                    "Content-Type".to_string(),
+                    "application/octet-stream".to_string(),
+                );
+                headers.insert("Origin".to_string(), "https://yun.139.com".to_string());
+                headers.insert("Referer".to_string(), "https://yun.139.com/".to_string());
+                headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0".to_string());
+
+                // mcloud 使用 PUT 方法直接上传文件内容，不需要 form_fields
+                // form_fields 用于 S3 等需要表单字段的存储
+
+                Ok(crate::storage::model::UploadInfo {
+                    upload_url: create_result.upload_url,
+                    method: "PUT".to_string(),
+                    form_fields: None, // mcloud 不需要表单字段
+                    headers: Some(headers),
+                    complete_url: Some(format!(
+                        "/api/fs/upload/complete?path={}&upload_id={}&file_id={}",
+                        params.path, // 使用绝对路径
+                        create_result.upload_id,
+                        create_result.file_id
+                    )),
+                })
+            }
         }
+    }
+
+    async fn complete_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        file_id: &str,
+        content_hash: &str,
+    ) -> Result<Option<crate::storage::model::FileMeta>, Self::Error> {
+        // 调用 /hcy/file/complete API
+        #[derive(Serialize)]
+        struct CompleteRequest {
+            fileId: String,
+            uploadId: String,
+            contentHash: String,
+            contentHashAlgorithm: &'static str,
+        }
+
+        let request = CompleteRequest {
+            fileId: file_id.to_string(),
+            uploadId: upload_id.to_string(),
+            contentHash: content_hash.to_string(),
+            contentHashAlgorithm: "SHA256",
+        };
+
+        #[derive(Deserialize)]
+        struct CompleteData {
+            fileId: String,
+            name: String,
+            r#type: String,
+        }
+
+        let _: CompleteData = self
+            .json_request(Method::POST, "/file/complete", &request)
+            .await?;
+
+        // 更新缓存
+        let file_path = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{}", path)
+        };
+        self.build_cache(&file_path).await?;
+        Ok(self
+            .get_file_meta_by_path(&file_path)
+            .await
+            .ok()
+            .and_then(|v| Some(v.to_meta())))
     }
 
     fn from_auth_data(json: &str) -> Result<Self, Self::Error>
@@ -465,7 +605,6 @@ impl McloudStorage {
         api_response.into_result().map_err(McloudError::ApiError)
     }
 
-    /// 处理 API 响应（返回原始数据结构，由调用者处理 data 字段）
     async fn handle_api_response<T: for<'de> DeserializeOwned>(
         &self,
         response: reqwest::Response,
@@ -532,12 +671,10 @@ impl McloudStorage {
     }
 
     /// 获取文件元数据
-    pub async fn get_file_meta(&self, file_id: &str) -> Result<McloudFileMeta, McloudError> {
-        // 通过列表获取单个文件
-        let list = self.list_files_internal(file_id, 1, None).await?;
-
-        if let Some(file) = list.files().into_iter().next() {
-            Ok(file.clone())
+    pub async fn get_file_meta_by_path(&self, path: &str) -> Result<McloudFileMeta, McloudError> {
+        let cache = self.path_cache.read().await;
+        if let Some((entry, _)) = cache.search(path) {
+            return Ok(entry.file_meta.clone());
         } else {
             Err(McloudError::NotFound("文件不存在".to_string()))
         }
@@ -694,7 +831,7 @@ impl McloudStorage {
         let matched = cache.search(path)?;
         if matched.1.is_empty() {
             //exact match
-            Some(matched.0.file_id.to_string())
+            Some(matched.0.file_id().to_string())
         } else {
             None
         }
@@ -820,10 +957,7 @@ impl McloudStorage {
                     format!("{}/{}", path, item.name)
                 };
 
-                all_entries.push((
-                    item_path.clone(),
-                    CacheEntry::new(item.id.clone(), item.to_meta()),
-                ));
+                all_entries.push((item_path.clone(), CacheEntry::new(item.clone())));
                 if item.file_type == McloudFileType::Folder {
                     Box::pin(self.build_cache_recursive(&item.id, item_path)).await?;
                 }
@@ -839,6 +973,151 @@ impl McloudStorage {
 
         Ok(())
     }
+
+    /// 创建上传记录，返回上传信息
+    async fn create_upload_record(
+        &self,
+        parent_file_id: &str,
+        file_name: &str,
+        file_size: u64,
+        content_hash: &str,
+    ) -> Result<UploadCreateInfo, McloudError> {
+        #[derive(Serialize)]
+        struct CreateUploadRequest {
+            fileRenameMode: &'static str,
+            contentType: &'static str,
+            r#type: &'static str,
+            name: String,
+            size: u64,
+            contentHashAlgorithm: &'static str,
+            contentHash: String,
+            partInfos: Vec<PartInfo>,
+            parentFileId: String,
+        }
+
+        #[derive(Serialize)]
+        struct PartInfo {
+            parallelHashCtx: ParallelHashCtx,
+            partNumber: u32,
+            partSize: u64,
+        }
+
+        #[derive(Serialize)]
+        struct ParallelHashCtx {
+            partOffset: u64,
+        }
+
+        let request = CreateUploadRequest {
+            fileRenameMode: "auto_rename",
+            contentType: "application/octet-stream",
+            r#type: "file",
+            name: file_name.to_string(),
+            size: file_size,
+            contentHashAlgorithm: "SHA256",
+            contentHash: content_hash.to_string(),
+            partInfos: vec![PartInfo {
+                parallelHashCtx: ParallelHashCtx { partOffset: 0 },
+                partNumber: 1,
+                partSize: file_size,
+            }],
+            parentFileId: parent_file_id.to_string(),
+        };
+
+        #[derive(Deserialize, Debug)]
+        struct CreateUploadData {
+            fileId: String,
+            uploadId: Option<String>,
+            partInfos: Option<Vec<PartUploadInfo>>,
+            rapidUpload: Option<bool>,
+            exist: Option<bool>,
+        }
+
+        #[derive(Deserialize, Debug)]
+        struct PartUploadInfo {
+            uploadUrl: Option<String>,
+        }
+
+        let response: CreateUploadData = self
+            .json_request_with_response(Method::POST, "/file/create", &request)
+            .await?;
+        // dbg!(&response);
+
+        // 检查是否是秒传（hash 命中缓存）
+        if response.rapidUpload == Some(true)
+            || response.exist == Some(true)
+            || response.uploadId.is_none()
+            || response.partInfos.is_none()
+        {
+            // 秒传成功，直接返回文件 ID，无需实际上传
+            return Ok(UploadCreateInfo {
+                file_id: response.fileId,
+                upload_id: String::new(),  // 空 upload_id 表示秒传
+                upload_url: String::new(), // 空 upload_url 表示无需上传
+                part_size: 0,
+                part_offset: 0,
+            });
+        }
+
+        let upload_url = response
+            .partInfos
+            .and_then(|parts| parts.first().and_then(|p| p.uploadUrl.clone()))
+            .ok_or(McloudError::ApiError("未获取到上传 URL".to_string()))?;
+
+        // part_size 和 part_offset 使用传入的文件大小和 0 偏移
+        // 因为响应中 PartUploadInfo 只包含 uploadUrl
+        let part_size = file_size;
+        let part_offset = 0u64;
+
+        Ok(UploadCreateInfo {
+            file_id: response.fileId,
+            upload_id: response.uploadId.unwrap_or_default(),
+            upload_url,
+            part_size,
+            part_offset,
+        })
+    }
+
+    /// 上传文件内容到 EOS 存储（流式上传）
+    async fn upload_to_eos(
+        &self,
+        upload_url: &str,
+        content: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    ) -> Result<(), McloudError> {
+        use tokio_util::io::ReaderStream;
+
+        // 将 AsyncRead 转换为 Stream
+        let stream = ReaderStream::new(content);
+
+        // 使用 reqwest::Body::wrap_stream 包装
+        let body = reqwest::Body::wrap_stream(stream);
+
+        let response = self
+            .client
+            .put(upload_url)
+            .header("Content-Type", "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(McloudError::ApiError(format!(
+                "上传到 EOS 失败：{}",
+                error_text
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+/// 上传创建信息
+struct UploadCreateInfo {
+    file_id: String,
+    upload_id: String,
+    upload_url: String,
+    part_size: u64,
+    part_offset: u64,
 }
 
 use std::future::Future;

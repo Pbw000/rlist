@@ -26,10 +26,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = McloudStorage::from_authorization(
         "cGM6MTM4ODA2MzAzMDk6ZEpjUHBYbEx8MXxSQ1N8MTc3NjY3NTUyMzc3N3xiT1hRRTZ2eUdKSWYuUnVTd3RHdlY1NWo2N2t5Z2NidTNtbnVuUW5sWTRQRDNicm01aWo2VjB6NmcxWm0wQzBDOG5Qdkl6VWhDMjgzc3NrTjdyOFI2eTJYelQxX3pQenJkdE8zbzNQX2s4V2FKUEFnLnNoemY2MHF0VHJRcU9iWUhaVU4wUlI3T1BkNzYxS2pEUS5fTEdfNGhaYUIuWjJ0T05KakRESEIxQTQt",
     );
-    let partial_mcloud = PartialStorage::new(storage.clone(), "/From link sharing");
+    let mut partial_mcloud = PartialStorage::new(storage.clone(), "/public/hieulerpi");
+    partial_mcloud.read_only(true);
     state.add_storage("mcloud_disk", "/mcloud", storage).await;
     state
-        .add_storage("mcloud_disk_part", "/mcloud_part", partial_mcloud)
+        .add_storage("mcloud_disk_part", "/hieulerpi", partial_mcloud)
         .await;
 
     tracing::info!("已添加移动云盘存储：mcloud");

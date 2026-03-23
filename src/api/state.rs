@@ -93,6 +93,22 @@ impl AppState {
     pub async fn build_cache(&self, path: &str) -> Result<(), RlistError> {
         self.inner.registry.write().await.build_cache(path).await
     }
+
+    /// 完成上传（Direct 模式）
+    pub async fn complete_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        file_id: &str,
+        content_hash: &str,
+    ) -> Result<Option<crate::storage::model::FileMeta>, RlistError> {
+        // path 是绝对路径（包含存储前缀），直接使用
+        let registry = self.inner.registry.read().await;
+        registry
+            .complete_upload(path, upload_id, file_id, content_hash)
+            .await
+    }
+
     /// 验证管理员密钥
     pub fn verify_admin_key(&self, key: &str) -> bool {
         key == self.inner.admin_key

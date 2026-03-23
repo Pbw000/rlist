@@ -1,9 +1,12 @@
 use crate::Storage;
-use crate::storage::model::{FileContent, FileList, FileMeta, UploadInfo, UploadMode};
+use crate::storage::model::{
+    FileContent, FileList, FileMeta, UploadInfo, UploadInfoParams, UploadMode,
+};
 
 pub struct PartialStorage<T: Storage> {
     pub inner: T,
     pub prefix_path: String,
+    read_only: bool,
 }
 
 impl<T: Storage> PartialStorage<T> {
@@ -12,7 +15,12 @@ impl<T: Storage> PartialStorage<T> {
         Self {
             inner,
             prefix_path: prefix_path.into(),
+            read_only: false,
         }
+    }
+    pub fn read_only(&mut self, read_only: bool) -> &mut Self {
+        self.read_only = read_only;
+        self
     }
     pub fn into_inner(self) -> T {
         self.inner
@@ -68,26 +76,51 @@ impl<T: Storage> Storage for PartialStorage<T> {
     }
 
     async fn create_folder(&self, path: &str) -> Result<FileMeta, Self::Error> {
+        if self.read_only {
+            return Err(<T as Storage>::Error::from(
+                "Storage is read-only".to_string(),
+            ));
+        }
         self.inner.create_folder(&self.handle_path(path)).await
     }
 
     async fn delete(&self, path: &str) -> Result<(), Self::Error> {
+        if self.read_only {
+            return Err(<T as Storage>::Error::from(
+                "Storage is read-only".to_string(),
+            ));
+        }
         self.inner.delete(&self.handle_path(path)).await
     }
 
     async fn rename(&self, old_path: &str, new_name: &str) -> Result<FileMeta, Self::Error> {
+        if self.read_only {
+            return Err(<T as Storage>::Error::from(
+                "Storage is read-only".to_string(),
+            ));
+        }
         self.inner
             .rename(&self.handle_path(old_path), new_name)
             .await
     }
 
     async fn copy(&self, source_path: &str, dest_path: &str) -> Result<FileMeta, Self::Error> {
+        if self.read_only {
+            return Err(<T as Storage>::Error::from(
+                "Storage is read-only".to_string(),
+            ));
+        }
         self.inner
             .copy(&self.handle_path(source_path), &self.handle_path(dest_path))
             .await
     }
 
     async fn move_(&self, source_path: &str, dest_path: &str) -> Result<FileMeta, Self::Error> {
+        if self.read_only {
+            return Err(<T as Storage>::Error::from(
+                "Storage is read-only".to_string(),
+            ));
+        }
         self.inner
             .move_(&self.handle_path(source_path), &self.handle_path(dest_path))
             .await
@@ -97,15 +130,34 @@ impl<T: Storage> Storage for PartialStorage<T> {
         self.inner.upload_mode()
     }
 
-    async fn get_upload_info(&self, path: &str, size: u64) -> Result<UploadInfo, Self::Error> {
+    async fn get_upload_info(&self, params: UploadInfoParams) -> Result<UploadInfo, Self::Error> {
+        if self.read_only {
+            return Err(<T as Storage>::Error::from(
+                "Storage is read-only".to_string(),
+            ));
+        }
         self.inner
-            .get_upload_info(&self.handle_path(path), size)
+            .get_upload_info(UploadInfoParams {
+                path: self.handle_path(&params.path),
+                size: params.size,
+                hash: params.hash,
+            })
             .await
     }
 
-    async fn upload_file(&self, path: &str, content: Vec<u8>) -> Result<FileMeta, Self::Error> {
+    async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+        &self,
+        path: &str,
+        content: R,
+        param: UploadInfoParams,
+    ) -> Result<FileMeta, Self::Error> {
+        if self.read_only {
+            return Err(<T as Storage>::Error::from(
+                "Storage is read-only".to_string(),
+            ));
+        }
         self.inner
-            .upload_file(&self.handle_path(path), content)
+            .upload_file(&self.handle_path(path), content, param)
             .await
     }
 
@@ -117,6 +169,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
         Ok(Self {
             inner,
             prefix_path: String::new(),
+            read_only: false,
         })
     }
 

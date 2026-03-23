@@ -301,10 +301,11 @@ impl Storage for LocalStorage {
         }
     }
 
-    fn upload_file(
+    fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
         &self,
         path: &str,
-        content: Vec<u8>,
+        mut content: R,
+        _param: crate::storage::model::UploadInfoParams,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(path)?;
@@ -314,8 +315,16 @@ impl Storage for LocalStorage {
                     .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             }
 
-            std::fs::write(&normalized, &content)
+            // 使用 tokio 异步写入文件
+            let mut file = tokio::fs::File::create(&normalized)
+                .await
                 .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+
+            // 复制内容到文件
+            tokio::io::copy(&mut content, &mut file)
+                .await
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+
             self.meta_from_path(&normalized)
         }
     }
@@ -327,16 +336,16 @@ impl Storage for LocalStorage {
 
     fn get_upload_info(
         &self,
-        path: &str,
-        _size: u64,
+        params: crate::storage::model::UploadInfoParams,
     ) -> impl Future<Output = Result<crate::storage::model::UploadInfo, Self::Error>> + Send {
         async move {
-            let normalized = self.normalize_path(path)?;
+            let normalized = self.normalize_path(&params.path)?;
             Ok(crate::storage::model::UploadInfo {
                 upload_url: format!("file://{}", normalized.to_string_lossy()),
                 method: "PUT".to_string(),
                 form_fields: None,
-                path: path.to_string(),
+                headers: None,
+                complete_url: None, // 本地存储无需 complete
             })
         }
     }

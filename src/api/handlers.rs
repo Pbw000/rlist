@@ -1,13 +1,14 @@
 //! API 请求处理器
 use axum::{
     Json,
+    body::Body,
     extract::{Path, Query, State},
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::state::AppState;
 use crate::storage::model::{Meta, Storage};
+use crate::{api::state::AppState, storage::model::UploadInfoParams};
 
 /// API 响应包装器
 #[derive(Debug, Serialize)]
@@ -77,12 +78,6 @@ pub struct MoveCopyRequest {
     pub dst_path: String,
 }
 
-/// 上传请求参数
-#[derive(Debug, Deserialize)]
-pub struct UploadQuery {
-    pub path: String,
-}
-
 /// 上传文件响应
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
@@ -101,42 +96,132 @@ pub struct UploadInfoResponse {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub form_fields: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complete_url: Option<String>,
+}
+
+/// 完成上传请求参数（Direct 模式）
+#[derive(Debug, Deserialize)]
+pub struct CompleteUploadParams {
+    pub path: String,
+    pub upload_id: String,
+    pub file_id: String,
+    pub content_hash: String,
 }
 
 /// 获取上传方式/链接
 pub async fn get_upload_info(
     State(state): State<AppState>,
-    Query(query): Query<UploadQuery>,
+    Json(query): Json<UploadInfoParams>,
 ) -> impl IntoResponse {
     let registry_guard = state.inner.registry.read().await;
-
-    // 获取文件元数据（如果文件已存在，获取其大小）
-    let size = match registry_guard.get_meta(&query.path).await {
-        Ok(meta) => match meta {
-            Meta::File { size, .. } => size,
-            Meta::Directory { .. } => 0,
-        },
-        Err(_) => 0,
-    };
-
-    match registry_guard.get_upload_info(&query.path, size).await {
+    let path = query.path.clone();
+    match registry_guard.get_upload_info(query).await {
         Ok(info) => {
             let resp = UploadInfoResponse {
                 mode: "direct".to_string(),
                 upload_url: info.upload_url,
                 method: info.method,
-                path: info.path,
+                path,
                 form_fields: info.form_fields,
-            };
-            ApiResponse::success(UploadResponse::Direct(resp))
-        }
-        Err(_) => {
-            // 如果不支持 Direct 模式，返回 Relay 模式指示
-            let resp = UploadResponse::Relay {
-                path: query.path.clone(),
+                headers: info.headers,
+                complete_url: info.complete_url,
             };
             ApiResponse::success(resp)
         }
+        Err(e) => ApiResponse::error(500, e.to_string()),
+    }
+}
+
+/// 上传文件（Relay 模式）
+pub async fn upload_file(
+    State(state): State<AppState>,
+    Query(query): Query<UploadInfoParams>,
+    body: Body,
+) -> impl IntoResponse {
+    use http_body_util::BodyExt;
+    use tokio_util::io::StreamReader;
+
+    let path = query.path.clone();
+    let size = query.size;
+    let hash = query.hash.clone();
+
+    // 将 Body 转换为 StreamReader 实现 AsyncRead
+    let stream = StreamReader::new(
+        body.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .into_data_stream(),
+    );
+
+    // 获取注册表并立即释放锁，避免长时间持有锁导致其他请求阻塞
+    let result = {
+        let registry_guard = state.inner.registry.read().await;
+        let param = UploadInfoParams {
+            path: path.clone(),
+            size,
+            hash,
+        };
+        registry_guard.upload_file(&path, stream, param).await
+    };
+
+    // 流式上传到存储驱动
+    match result {
+        Ok(meta) => {
+            let resp = UploadResult {
+                path,
+                size: match &meta {
+                    Meta::File { size, .. } => *size,
+                    Meta::Directory { .. } => 0,
+                },
+            };
+            ApiResponse::success(resp)
+        }
+        Err(e) => ApiResponse::error(500, format!("上传失败：{}", e)),
+    }
+}
+
+/// 上传结果响应
+#[derive(Debug, Serialize)]
+pub struct UploadResult {
+    pub path: String,
+    pub size: u64,
+}
+
+/// 完成上传（Direct 模式）
+pub async fn complete_upload(
+    State(state): State<AppState>,
+    Query(query): Query<CompleteUploadParams>,
+) -> impl IntoResponse {
+    // 调用存储驱动的 complete_upload 方法
+    // path 已经是绝对路径（包含存储前缀）
+    match state
+        .complete_upload(
+            &query.path,
+            &query.upload_id,
+            &query.file_id,
+            &query.content_hash,
+        )
+        .await
+    {
+        Ok(Some(meta)) => {
+            let resp = UploadResult {
+                path: query.path,
+                size: match &meta {
+                    Meta::File { size, .. } => *size,
+                    Meta::Directory { .. } => 0,
+                },
+            };
+            ApiResponse::success(resp)
+        }
+        Ok(None) => {
+            // 返回 None 表示不需要 complete 步骤（默认实现）
+            ApiResponse::success(UploadResult {
+                path: query.path,
+                size: 0,
+            })
+        }
+        Err(e) => ApiResponse::error(500, format!("完成上传失败：{}", e)),
     }
 }
 
@@ -354,57 +439,59 @@ pub async fn download_file(
     use futures_util::stream::StreamExt;
     use tokio_util::io::ReaderStream;
 
-    let registry_guard = state.inner.registry.read().await;
+    // 先获取文件元数据（短暂持有锁）
+    let (file_name, size, file_content) = {
+        let registry_guard = state.inner.registry.read().await;
 
-    // 获取文件元数据以确定文件名和大小
-    let meta = match registry_guard.get_meta(&query.path).await {
-        Ok(m) => m,
-        Err(e) => {
-            return ApiResponse::<()>::error(404, format!("文件不存在：{}", e)).into_response();
-        }
-    };
+        let meta = match registry_guard.get_meta(&query.path).await {
+            Ok(m) => m,
+            Err(e) => {
+                return ApiResponse::<()>::error(404, format!("文件不存在：{}", e)).into_response();
+            }
+        };
 
-    let (file_name, size) = match &meta {
-        Meta::File { name, size, .. } => (name.clone(), *size),
-        Meta::Directory { .. } => {
-            return ApiResponse::<()>::error(400, "不能下载目录".to_string()).into_response();
-        }
-    };
+        let (file_name, size) = match &meta {
+            Meta::File { name, size, .. } => (name.clone(), *size),
+            Meta::Directory { .. } => {
+                return ApiResponse::<()>::error(400, "不能下载目录".to_string()).into_response();
+            }
+        };
 
-    // 下载文件流
-    match registry_guard.download_file(&query.path).await {
-        Ok(file_content) => {
-            // 获取文件名（从路径中提取）
-            let file_name = file_name.clone();
-
-            // 创建流式响应
-            let stream = ReaderStream::new(file_content);
-
-            let body = Body::from_stream(stream.filter_map(|result| async move {
-                match result {
-                    Ok(bytes) => Some(Ok::<axum::body::Bytes, std::convert::Infallible>(
-                        axum::body::Bytes::from(bytes),
-                    )),
-                    Err(_) => None,
-                }
-            }));
-
-            let response = Response::builder()
-                .header("Content-Type", "application/octet-stream")
-                .header(
-                    "Content-Disposition",
-                    format!("attachment; filename=\"{}\"", file_name),
-                )
-                .header("Content-Length", size.to_string())
-                .body(body)
-                .map_err(|e| format!("构建响应失败：{}", e));
-
-            match response {
-                Ok(resp) => resp.into_response(),
-                Err(e) => ApiResponse::<()>::error(500, e).into_response(),
+        // 下载文件流
+        match registry_guard.download_file(&query.path).await {
+            Ok(file_content) => (file_name, size, file_content),
+            Err(e) => {
+                return ApiResponse::<()>::error(500, format!("下载失败：{}", e)).into_response();
             }
         }
-        Err(e) => ApiResponse::<()>::error(500, format!("下载失败：{}", e)).into_response(),
+    };
+    // 锁在这里已经释放
+
+    // 创建流式响应
+    let stream = ReaderStream::new(file_content);
+
+    let body = Body::from_stream(stream.filter_map(|result| async move {
+        match result {
+            Ok(bytes) => Some(Ok::<axum::body::Bytes, std::convert::Infallible>(
+                axum::body::Bytes::from(bytes),
+            )),
+            Err(_) => None,
+        }
+    }));
+
+    let response = Response::builder()
+        .header("Content-Type", "application/octet-stream")
+        .header(
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", file_name),
+        )
+        .header("Content-Length", size.to_string())
+        .body(body)
+        .map_err(|e| format!("构建响应失败：{}", e));
+
+    match response {
+        Ok(resp) => resp.into_response(),
+        Err(e) => ApiResponse::<()>::error(500, e).into_response(),
     }
 }
 
@@ -478,22 +565,6 @@ pub async fn move_file(
         Err(e) => ApiResponse::error(500, format!("移动失败：{}", e)),
     }
 }
-
-/// 上传文件
-pub async fn upload_file(
-    State(state): State<AppState>,
-    Query(query): Query<UploadQuery>,
-    body: axum::body::Bytes,
-) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
-
-    match registry_guard.upload_file(&query.path, body.to_vec()).await {
-        Ok(_) => ApiResponse::success(serde_json::json!({"path": query.path})),
-        Err(e) => ApiResponse::error(500, format!("上传失败：{}", e)),
-    }
-}
-
-// ==================== 存储管理接口 ====================
 
 /// 列出所有存储
 pub async fn list_storages(State(state): State<AppState>) -> impl IntoResponse {

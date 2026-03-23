@@ -652,6 +652,42 @@
                 transition: width 0.3s;
             }
 
+            /* Upload Progress Item */
+            .upload-item {
+                padding: 10px;
+                border-bottom: 1px solid var(--border-color);
+                font-size: 13px;
+            }
+
+            .upload-item:last-child {
+                border-bottom: none;
+            }
+
+            .upload-item-name {
+                font-weight: 500;
+                margin-bottom: 4px;
+                color: var(--text-primary);
+            }
+
+            .upload-item-status {
+                color: var(--text-secondary);
+                font-size: 12px;
+                margin-bottom: 4px;
+            }
+
+            .upload-item-progress {
+                height: 6px;
+                background: var(--border-color);
+                border-radius: 3px;
+                overflow: hidden;
+            }
+
+            .upload-item-progress .progress {
+                height: 100%;
+                background: var(--primary-color);
+                transition: width 0.3s;
+            }
+
             /* Responsive */
             @media (max-width: 768px) {
                 .container {
@@ -966,6 +1002,29 @@
                         onclick="confirmPathSelection()"
                     >
                         确定
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Progress Modal -->
+        <div
+            class="modal-overlay"
+            id="uploadProgressModal"
+            style="display: none"
+        >
+            <div class="modal">
+                <h2><i class="ti ti-upload"></i> 上传进度</h2>
+                <div
+                    id="uploadProgressContent"
+                    style="max-height: 300px; overflow-y: auto"
+                ></div>
+                <div class="modal-actions">
+                    <button
+                        class="btn btn-primary"
+                        onclick="hideUploadProgressModal()"
+                    >
+                        关闭
                     </button>
                 </div>
             </div>
@@ -1437,27 +1496,81 @@
             async function handleUpload(files) {
                 if (files.length === 0) return;
 
+                // 显示上传进度模态框
+                showUploadProgressModal();
+
                 for (const file of files) {
                     const path = currentPath.endsWith("/")
                         ? currentPath + file.name
                         : currentPath + "/" + file.name;
 
                     try {
-                        const response = await fetch(
-                            `${API_BASE}/fs/upload?path=${encodeURIComponent(path)}`,
+                        // 计算文件 SHA256 hash
+                        const hash = await calculateFileHash(file);
+
+                        // 先获取上传信息（POST 方法，参数放在 body 中）
+                        const uploadInfoResp = await fetch(
+                            `${API_BASE}/fs/upload-info`,
                             {
-                                method: "PUT",
-                                body: file,
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({
+                                    path: path,
+                                    size: file.size,
+                                    hash: hash,
+                                }),
                             },
                         );
+                        const uploadInfoResult = await uploadInfoResp.json();
 
-                        const result = await response.json();
-                        if (result.code === 200) {
-                            showToast(`${file.name} 上传成功`, "success");
-                        } else {
+                        if (uploadInfoResult.code !== 200) {
                             showToast(
-                                `${file.name} 上传失败：${result.message}`,
+                                `${file.name} 获取上传信息失败：${uploadInfoResult.message}`,
                                 "error",
+                            );
+                            updateUploadProgress(
+                                file.name,
+                                0,
+                                "获取上传信息失败",
+                            );
+                            continue;
+                        }
+
+                        let uploadSuccess = false;
+
+                        // 判断上传模式
+                        if (
+                            uploadInfoResult.data &&
+                            uploadInfoResult.data.mode === "direct"
+                        ) {
+                            // Direct 模式：先尝试直接上传到存储端
+                            uploadSuccess = await uploadToDirect(
+                                file,
+                                uploadInfoResult.data,
+                                path,
+                                (progress) =>
+                                    updateUploadProgress(
+                                        file.name,
+                                        progress,
+                                        "Direct 模式上传中...",
+                                    ),
+                            );
+                        }
+
+                        // Direct 模式失败或返回 false，fallback 到 Relay 模式
+                        if (!uploadSuccess) {
+                            showToast(
+                                `${file.name} Direct 模式失败，尝试 Relay 模式...`,
+                                "info",
+                            );
+                            await uploadToRelay(file, path, hash, (progress) =>
+                                updateUploadProgress(
+                                    file.name,
+                                    progress,
+                                    "Relay 模式上传中...",
+                                ),
                             );
                         }
                     } catch (error) {
@@ -1465,10 +1578,377 @@
                             `${file.name} 上传错误：${error.message}`,
                             "error",
                         );
+                        updateUploadProgress(
+                            file.name,
+                            0,
+                            `错误：${error.message}`,
+                        );
                     }
                 }
 
                 loadFiles();
+            }
+
+            // 计算文件 SHA256 hash
+            async function calculateFileHash(file) {
+                const buffer = await file.arrayBuffer();
+                const hashBuffer = await crypto.subtle.digest(
+                    "SHA-256",
+                    buffer,
+                );
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const hashHex = hashArray
+                    .map((b) => b.toString(16).padStart(2, "0"))
+                    .join("");
+                return hashHex;
+            }
+
+            // Direct 模式上传（返回是否成功）
+            async function uploadToDirect(file, uploadInfo, path, onProgress) {
+                const {
+                    upload_url,
+                    method,
+                    form_fields,
+                    headers,
+                    complete_url,
+                } = uploadInfo;
+
+                console.log(
+                    `Direct 模式上传：${file.name}, URL: ${upload_url}`,
+                );
+
+                // 检查是否是秒传（特殊 URL 标记）
+                if (upload_url === "about:blank") {
+                    showToast(`${file.name} 上传成功（秒传）`, "success");
+                    if (onProgress) onProgress(100);
+                    return true;
+                }
+
+                try {
+                    // 判断是否有 form_fields，决定上传方式
+                    if (form_fields && Object.keys(form_fields).length > 0) {
+                        // 需要附加表单字段的上传（如 S3 等）
+                        const formData = new FormData();
+
+                        // 添加表单字段
+                        Object.entries(form_fields).forEach(([key, value]) => {
+                            formData.append(key, value);
+                        });
+
+                        // 添加文件
+                        formData.append("file", file);
+
+                        const fetchOptions = {
+                            method: method || "POST",
+                            body: formData,
+                        };
+
+                        // 添加请求头（如果有）
+                        if (headers) {
+                            fetchOptions.headers = headers;
+                        }
+
+                        // 使用 xhr 来跟踪上传进度
+                        const uploaded = await uploadWithProgress(
+                            upload_url,
+                            fetchOptions,
+                            file.size,
+                            onProgress,
+                        );
+
+                        if (uploaded) {
+                            // 上传成功，调用 complete_url（如果有）
+                            if (complete_url) {
+                                await callCompleteUrl(
+                                    complete_url,
+                                    file,
+                                    form_fields,
+                                    path,
+                                );
+                            }
+                            showToast(`${file.name} 上传成功`, "success");
+                            return true;
+                        } else {
+                            throw new Error("上传失败");
+                        }
+                    } else {
+                        // 直接上传文件内容（如 mcloud，使用 PUT 方法）
+                        // 使用流式上传，确保 Content-Type 正确
+                        const uploadHeaders = headers ? { ...headers } : {};
+                        // 确保设置正确的 Content-Type
+                        if (!uploadHeaders["Content-Type"]) {
+                            uploadHeaders["Content-Type"] =
+                                "application/octet-stream";
+                        }
+
+                        const fetchOptions = {
+                            method: method || "PUT",
+                            headers: uploadHeaders,
+                        };
+
+                        console.log(
+                            `Direct 模式：使用 ${method || "PUT"} 方法上传到 ${upload_url}`,
+                        );
+
+                        // 使用 xhr 来跟踪上传进度
+                        const uploaded = await uploadWithProgress(
+                            upload_url,
+                            fetchOptions,
+                            file.size,
+                            onProgress,
+                            file,
+                        );
+
+                        if (uploaded) {
+                            // 上传成功，调用 complete_url（如果有）
+                            if (complete_url) {
+                                await callCompleteUrl(
+                                    complete_url,
+                                    file,
+                                    form_fields,
+                                    path,
+                                );
+                            }
+                            showToast(`${file.name} 上传成功`, "success");
+                            return true;
+                        } else {
+                            throw new Error("上传失败");
+                        }
+                    }
+                } catch (error) {
+                    // Direct 模式失败，返回 false 触发 fallback
+                    console.warn(
+                        `${file.name} Direct 上传失败：`,
+                        error.message,
+                    );
+                    return false;
+                }
+            }
+
+            // 调用 complete_url 完成上传
+            async function callCompleteUrl(
+                completeUrl,
+                file,
+                formFields,
+                originalPath,
+            ) {
+                try {
+                    // 解析 complete_url 中的参数获取 upload_id 和 file_id
+                    const url = new URL(completeUrl, window.location.origin);
+                    const params = new URLSearchParams(url.search);
+
+                    // 从 URL 参数或 form_fields 中获取 file_id 和 upload_id
+                    // 对于 mcloud，这些信息在 URL 参数中
+                    const fileId =
+                        params.get("file_id") ||
+                        (formFields && formFields.fileId) ||
+                        params.get("fileId") ||
+                        "";
+                    const uploadId =
+                        params.get("upload_id") ||
+                        (formFields && formFields.uploadId) ||
+                        params.get("uploadId") ||
+                        "";
+
+                    // 计算文件 hash
+                    const contentHash = await calculateFileHash(file);
+
+                    // 调用 complete 接口 - 使用完整 URL
+                    // 使用原始完整路径（包含存储前缀），而不是后端返回的路径
+                    const completeParams = new URLSearchParams({
+                        path: originalPath || "", // 使用前端传入的原始路径
+                        upload_id: uploadId,
+                        file_id: fileId,
+                        content_hash: contentHash,
+                    });
+
+                    // 构建完整 URL（包括 origin）
+                    const fullUrl = `${window.location.origin}${url.pathname}?${completeParams.toString()}`;
+
+                    const response = await fetch(fullUrl, {
+                        method: "POST",
+                    });
+
+                    if (!response.ok) {
+                        console.warn(
+                            `调用 complete 接口失败：`,
+                            await response.text(),
+                        );
+                    } else {
+                        console.log(`调用 complete 接口成功`);
+                    }
+                } catch (error) {
+                    console.warn(`调用 complete_url 失败：`, error.message);
+                }
+            }
+
+            // Relay 模式上传（通过服务器中转）
+            async function uploadToRelay(file, path, hash, onProgress) {
+                // 使用 xhr 来跟踪上传进度
+                const timeoutMs = Math.max(10 * 60 * 1000, file.size * 2); // 至少 10 分钟，或根据文件大小调整
+
+                try {
+                    const uploaded = await uploadWithProgress(
+                        `${API_BASE}/fs/upload?path=${encodeURIComponent(path)}&size=${file.size}&hash=${hash}`,
+                        {
+                            method: "PUT",
+                        },
+                        file.size,
+                        onProgress,
+                        file,
+                        timeoutMs,
+                    );
+
+                    if (!uploaded) {
+                        throw new Error("上传失败");
+                    }
+
+                    showToast(`${file.name} 上传成功（Relay 模式）`, "success");
+                    return true;
+                } catch (error) {
+                    console.error(`Relay 模式上传失败:`, error);
+                    if (
+                        error.message.includes("Failed to fetch") ||
+                        error.message.includes("NetworkError")
+                    ) {
+                        throw new Error(
+                            "网络连接失败，请检查服务器是否正常运行",
+                        );
+                    }
+                    throw error;
+                }
+            }
+
+            // 使用 XHR 进行带进度的上传
+            function uploadWithProgress(
+                url,
+                fetchOptions,
+                fileSize,
+                onProgress,
+                file,
+                timeoutMs = 10 * 60 * 1000,
+            ) {
+                return new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open(fetchOptions.method || "PUT", url, true);
+
+                    // 设置请求头
+                    // 注意：当使用 FormData 时，不要手动设置 Content-Type，让浏览器自动设置 boundary
+                    const isFormData = fetchOptions.body instanceof FormData;
+                    if (fetchOptions.headers && !isFormData) {
+                        Object.entries(fetchOptions.headers).forEach(
+                            ([key, value]) => {
+                                xhr.setRequestHeader(key, value);
+                            },
+                        );
+                    }
+
+                    // 超时处理
+                    const timeoutId = setTimeout(() => {
+                        xhr.abort();
+                        reject(new Error("上传超时，文件可能较大，请重试"));
+                    }, timeoutMs);
+
+                    // 上传进度监听
+                    xhr.upload.addEventListener("progress", (event) => {
+                        if (event.lengthComputable && onProgress) {
+                            const percent = Math.round(
+                                (event.loaded / event.total) * 100,
+                            );
+                            onProgress(percent);
+                        }
+                    });
+
+                    // 完成处理
+                    xhr.addEventListener("load", () => {
+                        clearTimeout(timeoutId);
+                        if (xhr.status >= 200 && xhr.status < 400) {
+                            if (onProgress) onProgress(100);
+                            resolve(true);
+                        } else {
+                            let errorText = xhr.statusText;
+                            try {
+                                const result = JSON.parse(xhr.responseText);
+                                errorText =
+                                    result.message ||
+                                    result.error ||
+                                    xhr.statusText;
+                            } catch (e) {
+                                errorText = xhr.responseText || xhr.statusText;
+                            }
+                            reject(new Error(errorText));
+                        }
+                    });
+
+                    // 错误处理
+                    xhr.addEventListener("error", () => {
+                        clearTimeout(timeoutId);
+                        reject(new Error("网络错误，请检查连接"));
+                    });
+
+                    // 发送数据
+                    if (isFormData) {
+                        // 使用 FormData（用于 S3 等需要表单字段的场景）
+                        xhr.send(fetchOptions.body);
+                    } else if (file) {
+                        // 直接发送文件对象（用于 Relay 模式和 mcloud Direct 模式）
+                        xhr.send(file);
+                    } else if (fetchOptions.body) {
+                        xhr.send(fetchOptions.body);
+                    } else {
+                        xhr.send();
+                    }
+                });
+            }
+
+            // 显示上传进度模态框
+            function showUploadProgressModal() {
+                const modal = document.getElementById("uploadProgressModal");
+                const content = document.getElementById(
+                    "uploadProgressContent",
+                );
+                content.innerHTML = "";
+                modal.style.display = "flex";
+            }
+
+            // 隐藏上传进度模态框
+            function hideUploadProgressModal() {
+                const modal = document.getElementById("uploadProgressModal");
+                modal.style.display = "none";
+            }
+
+            // 更新上传进度
+            function updateUploadProgress(fileName, progress, status) {
+                const content = document.getElementById(
+                    "uploadProgressContent",
+                );
+                let item = document.getElementById(
+                    `upload-${fileName.replace(/[^a-zA-Z0-9]/g, "-")}`,
+                );
+
+                if (!item) {
+                    item = document.createElement("div");
+                    item.className = "upload-item";
+                    item.id = `upload-${fileName.replace(/[^a-zA-Z0-9]/g, "-")}`;
+                    item.innerHTML = `
+                        <div class="upload-item-name">${escapeHtml(fileName)}</div>
+                        <div class="upload-item-status">${status || "等待中..."}</div>
+                        <div class="upload-item-progress">
+                            <div class="progress" style="width: ${progress}%"></div>
+                        </div>
+                    `;
+                    content.appendChild(item);
+                } else {
+                    const statusEl = item.querySelector(".upload-item-status");
+                    const progressEl = item.querySelector(
+                        ".upload-item-progress .progress",
+                    );
+                    if (statusEl) statusEl.textContent = status || "等待中...";
+                    if (progressEl) progressEl.style.width = `${progress}%`;
+                }
+
+                // 自动滚动到底部
+                content.scrollTop = content.scrollHeight;
             }
 
             // 删除文件

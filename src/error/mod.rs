@@ -31,7 +31,11 @@ pub enum RlistError {
     #[error("IO 错误：{0}")]
     Io(#[from] std::io::Error),
 }
-
+impl From<String> for RlistError {
+    fn from(msg: String) -> Self {
+        RlistError::Storage(StorageError::Custom(msg))
+    }
+}
 /// 存储后端相关错误
 #[derive(Error, Debug)]
 pub enum StorageError {

@@ -61,6 +61,17 @@ pub enum UploadMode {
     Direct,
 }
 
+/// 上传信息请求参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadInfoParams {
+    /// 文件路径
+    pub path: String,
+    /// 文件大小
+    pub size: u64,
+    ///SHA-256
+    pub hash: String,
+}
+
 /// 上传信息（用于 Direct 模式）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadInfo {
@@ -71,12 +82,16 @@ pub struct UploadInfo {
     /// 上传表单字段（如果需要）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub form_fields: Option<std::collections::HashMap<String, String>>,
-    /// 文件路径
-    pub path: String,
+    /// 上传请求头（如果需要）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    /// 上传完成回调 URL（Direct 模式下，前端上传完成后需调用此接口通知后端）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complete_url: Option<String>,
 }
 
 pub trait Storage: Send + Sync {
-    type Error: Send + Sync + Error + 'static + Into<RlistError>;
+    type Error: Send + Sync + Error + 'static + Into<RlistError> + From<String>;
 
     /// 存储名称（人类可读）
     fn name(&self) -> &str;
@@ -166,24 +181,37 @@ pub trait Storage: Send + Sync {
         UploadMode::Relay
     }
 
-    /// 获取上传信息（仅 Direct 模式使用）
-    /// 返回上传 URL 和相关信息，客户端可直接上传到存储端
-    ///
-    /// 默认返回 `Err` 表示不支持 Direct 模式，需要中继上传
     fn get_upload_info(
         &self,
-        _path: &str,
-        _size: u64,
+        params: UploadInfoParams,
     ) -> impl Future<Output = Result<UploadInfo, Self::Error>> + Send
     where
         Self: Sized;
 
+    /// 完成上传（Direct 模式）
+    /// 前端上传完成后调用此方法通知后端完成上传流程
+    /// 默认返回 Ok(None) 表示不需要完成步骤
+    fn complete_upload(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+        _file_id: &str,
+        _content_hash: &str,
+    ) -> impl Future<Output = Result<Option<FileMeta>, Self::Error>> + Send
+    where
+        Self: Sized,
+    {
+        async move { Ok(None) }
+    }
+
     /// 上传文件（中继模式）
     /// 文件内容通过服务器中转上传到存储端
-    fn upload_file(
+    /// 使用流式上传，支持大文件
+    fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
         &self,
         path: &str,
-        content: Vec<u8>,
+        content: R,
+        param: UploadInfoParams,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
     /// 从认证数据创建实例
