@@ -32,11 +32,11 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
     // 公开路由（无需认证）
     let public_routes = Router::new()
         // 健康检查
-        .route("/health", get(|| async { "OK" }));
+        .route("/health", get(|| async { "OK" }))
+        // 公开存储访问端点
+        .route("/list", post(handlers::public_list_files))
+        .route("/download", get(handlers::public_download_file));
 
-    // 文件系统路由 - 每个路由单独配置认证和权限
-    // 注意：必须使用 Router::new().route().route_layer() 分组方式
-    // 因为 route_layer() 会应用到之前定义的所有路由，而不是仅应用到最近的路由
     let list_routes = Router::new()
         .route("/fs/list", get(handlers::list_files))
         .route("/fs/dir", get(handlers::get_file_info))
@@ -146,7 +146,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         ));
 
     Router::new()
-        .nest("/api", public_auth_routes.merge(public_routes))
+        .nest("/api", public_auth_routes)
+        .nest("/obs", public_routes)
         // 认证路由（需要 JWT 认证）
         .nest("/api", protected_auth_routes)
         // 文件系统路由（需要 JWT 认证和权限检查）

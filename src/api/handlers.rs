@@ -241,18 +241,7 @@ pub async fn list_files(
         .list_files(path, query.per_page.unwrap_or(100), None)
         .await
     {
-        Ok(list) => {
-            let resp = ListResponse {
-                content: list
-                    .items
-                    .into_iter()
-                    .map(|m| meta_to_file_info(m, path))
-                    .collect(),
-                total: list.total as usize,
-                read_me: None,
-            };
-            ApiResponse::success(resp)
-        }
+        Ok(list) => ApiResponse::success(list),
         Err(e) => ApiResponse::error(500, format!("列出文件失败：{}", e)),
     }
 }
@@ -265,10 +254,7 @@ pub async fn get_file_info(
     let registry_guard = state.inner.registry.read().await;
 
     match registry_guard.get_meta(&query.path).await {
-        Ok(meta) => {
-            let file_info = meta_to_file_info(meta, &query.path);
-            ApiResponse::success(file_info)
-        }
+        Ok(meta) => ApiResponse::success(meta),
         Err(e) => ApiResponse::error(404, format!("文件不存在：{}", e)),
     }
 }
@@ -469,49 +455,6 @@ pub async fn remove_storage(
     ApiResponse::success(serde_json::json!({"deleted": name}))
 }
 
-// ==================== 辅助函数 ====================
-
-/// 将 Meta 转换为 FileInfo
-fn meta_to_file_info(meta: Meta, parent_path: &str) -> FileInfo {
-    let name = match &meta {
-        Meta::File { name, .. } | Meta::Directory { name, .. } => name.clone(),
-    };
-
-    let path = if parent_path.ends_with('/') || parent_path == "/" {
-        format!("{}{}", parent_path, name)
-    } else {
-        format!("{}/{}", parent_path, name)
-    };
-
-    let (size, file_type, modified) = match meta {
-        Meta::File {
-            size, modified_at, ..
-        } => (
-            size,
-            "file".to_string(),
-            modified_at.map(|dt| dt.to_rfc3339()),
-        ),
-        Meta::Directory { modified_at, .. } => {
-            (0, "dir".to_string(), modified_at.map(|dt| dt.to_rfc3339()))
-        }
-    };
-
-    FileInfo {
-        name,
-        path,
-        size,
-        file_type,
-        modified,
-    }
-}
-#[derive(Debug, Serialize)]
-pub struct ListResponse {
-    pub content: Vec<FileInfo>,
-    pub total: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub read_me: Option<String>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct FileInfo {
     pub name: String,
@@ -608,4 +551,32 @@ pub async fn get_current_user() -> ApiResponse<serde_json::Value> {
     ApiResponse::success(serde_json::json!({
         "message": "已认证"
     }))
+}
+
+pub async fn public_list_files(
+    State(state): State<AppState>,
+    Json(payload): Json<ListQuery>,
+) -> impl IntoResponse {
+    let path = payload.path.as_deref().unwrap_or("/");
+    let registry_guard = state.get_public_registry().await;
+
+    match registry_guard
+        .list_files(path, payload.per_page.unwrap_or(100), None)
+        .await
+    {
+        Ok(list) => ApiResponse::success(list),
+        Err(e) => ApiResponse::error(500, format!("列出文件失败：{}", e)),
+    }
+}
+
+pub async fn public_download_file(
+    State(state): State<AppState>,
+    Query(query): Query<FsOperation>,
+) -> impl IntoResponse {
+    let registry_guard = state.get_public_registry().await;
+
+    match registry_guard.get_download_meta_by_path(&query.path).await {
+        Ok(meta) => ApiResponse::success(meta),
+        Err(e) => ApiResponse::error(404, format!("获取下载链接失败：{}", e)),
+    }
 }

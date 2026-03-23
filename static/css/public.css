@@ -1,0 +1,69 @@
+/* 公开访问页面样式 */
+
+/* Footer */
+.footer {
+    margin-top: 20px;
+    padding: 16px 24px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: var(--shadow);
+}
+
+.footer p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.footer i {
+    color: var(--primary-color);
+}
+
+/* Header 调整 */
+.header-left h1 {
+    font-size: 20px;
+}
+
+.breadcrumb {
+    margin-top: 8px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .header {
+        padding: 16px;
+    }
+
+    .header-left h1 {
+        font-size: 18px;
+    }
+
+    .toolbar {
+        padding: 12px 16px;
+    }
+
+    .toolbar .btn {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+
+    .file-list-header {
+        grid-template-columns: 1fr 100px 100px 80px;
+        padding: 12px 16px;
+    }
+
+    .file-item {
+        grid-template-columns: 1fr 100px 100px 80px;
+        padding: 12px 16px;
+    }
+
+    .file-size,
+    .file-date {
+        font-size: 12px;
+    }
+}

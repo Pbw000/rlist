@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     partial_mcloud.read_only(true);
     state.add_storage("mcloud_disk", "/mcloud", storage).await;
     state
-        .add_storage("mcloud_disk_part", "/hieulerpi", partial_mcloud)
+        .add_public_storage("mcloud_disk_part", "/hieulerpi", partial_mcloud)
         .await;
 
     tracing::info!("已添加移动云盘存储：mcloud");

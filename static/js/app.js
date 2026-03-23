@@ -384,7 +384,24 @@ async function loadFiles() {
     const result = await response.json();
 
     if (result.code === 200 && result.data) {
-      filesData = result.data.content || [];
+      // 后端返回 FileList 结构：{ items, total, next_cursor }
+      // Meta 枚举：File { name, size, modified_at } 或 Directory { name, modified_at }
+      const rawItems = result.data.items || [];
+      // 转换为前端期望的格式
+      filesData = rawItems.map((item) => {
+        const isDir = item.File === undefined; // 没有 File 字段就是目录
+        return {
+          name: item.File?.name || item.Directory?.name || "unknown",
+          path: currentPath.endsWith("/")
+            ? currentPath + (item.File?.name || item.Directory?.name || "")
+            : currentPath +
+              "/" +
+              (item.File?.name || item.Directory?.name || ""),
+          size: item.File?.size || 0,
+          file_type: isDir ? "dir" : "file",
+          modified: item.File?.modified_at || item.Directory?.modified_at,
+        };
+      });
       renderFiles(filesData);
       updateBreadcrumb();
     } else if (result.code === 401) {
@@ -687,6 +704,7 @@ async function previewFile(path, name) {
       return;
     }
 
+    // FileResponse 结构：{ name, url, size, hash }
     const url = result.data.url;
     previewContent.innerHTML = "";
 
@@ -754,6 +772,7 @@ async function downloadFile(path) {
     const result = await response.json();
 
     if (result.code === 200 && result.data) {
+      // FileResponse 结构：{ name, url, size, hash }
       window.open(result.data.url, "_blank");
       showToast("下载已开始", "success");
     } else if (result.code === 401) {
@@ -1488,8 +1507,10 @@ async function loadPathSelector(path) {
   content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
+    // 使用 /fs/list 接口列出目录
     const response = await fetch(
-      `${API_BASE}/fs/parent-dirs?path=${encodeURIComponent(path)}`,
+      `${API_BASE}/fs/list?path=${encodeURIComponent(path)}`,
+      { headers: getAuthHeaders() },
     );
 
     // 401: 未认证，需要重新登录
@@ -1508,16 +1529,41 @@ async function loadPathSelector(path) {
     const result = await response.json();
 
     if (result.code === 200 && result.data) {
-      const dirs = result.data;
-      if (dirs.length === 0) {
+      // 后端返回 FileList 结构：{ items, total, next_cursor }
+      const rawItems = result.data.items || [];
+      // 只获取目录
+      const dirs = rawItems
+        .filter((item) => item.File === undefined) // 没有 File 字段就是目录
+        .map((item) => ({
+          name: item.Directory?.name || "unknown",
+          path: path.endsWith("/")
+            ? path + (item.Directory?.name || "")
+            : path + "/" + (item.Directory?.name || ""),
+        }));
+
+      // 添加一个"选择当前目录"选项
+      const currentDirItem = {
+        name: path === "/" ? "根目录" : path.split("/").pop() || "当前目录",
+        path: path,
+        isCurrent: true,
+      };
+
+      if (dirs.length === 0 && path === "/") {
         content.innerHTML =
           '<div class="empty-state"><i class="ti ti-folder-x"></i><p>无可用目录</p></div>';
         return;
       }
 
-      content.innerHTML = dirs
-        .map(
-          (dir) => `
+      content.innerHTML = `
+        <div class="file-item" onclick="selectPath('${escapeHtml(currentDirItem.path)}')" style="cursor: pointer; background: var(--selected-bg);">
+            <div class="file-main">
+                <div class="file-icon"><i class="ti ti-check"></i></div>
+                <div class="file-name">${escapeHtml(currentDirItem.name)} (当前)</div>
+            </div>
+        </div>
+        ${dirs
+          .map(
+            (dir) => `
                             <div class="file-item" onclick="selectPath('${escapeHtml(dir.path)}')" style="cursor: pointer;">
                                 <div class="file-main">
                                     <div class="file-icon"><i class="ti ti-folder"></i></div>
@@ -1525,8 +1571,9 @@ async function loadPathSelector(path) {
                                 </div>
                             </div>
                         `,
-        )
-        .join("");
+          )
+          .join("")}
+      `;
 
       // 更新当前选择
       selectedPath = path;
@@ -1564,10 +1611,11 @@ async function confirmCopyMove() {
     return;
   }
 
-  const apiEndpoint = type === "copy" ? "/api/fs/copy" : "/api/fs/move";
+  // API_BASE 已经是 /api，所以端点使用 /fs/copy 或 /fs/move
+  const apiEndpoint = type === "copy" ? "/fs/copy" : "/fs/move";
 
   try {
-    const response = await fetch(apiEndpoint, {
+    const response = await fetch(`${API_BASE}${apiEndpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

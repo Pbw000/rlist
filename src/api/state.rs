@@ -27,6 +27,8 @@ pub struct AppStateInner {
     pub admin_key: String,
     /// 认证配置
     pub auth_config: Arc<AuthConfig>,
+    /// 公开存储引擎注册表（用于无需认证的访问）
+    pub public_registry: RwLock<StorageRegistry>,
 }
 
 impl AppState {
@@ -38,6 +40,7 @@ impl AppState {
                 storage_names: RwLock::new(HashMap::new()),
                 admin_key,
                 auth_config,
+                public_registry: RwLock::new(StorageRegistry::new()),
             }),
         }
     }
@@ -95,7 +98,13 @@ impl AppState {
         self.inner.registry.read().await
     }
     pub async fn build_cache(&self, path: &str) -> Result<(), RlistError> {
-        self.inner.registry.write().await.build_cache(path).await
+        self.inner.registry.write().await.build_cache(path).await?;
+        self.inner
+            .public_registry
+            .write()
+            .await
+            .build_cache(path)
+            .await
     }
 
     /// 完成上传（Direct 模式）
@@ -116,5 +125,28 @@ impl AppState {
     /// 验证管理员密钥
     pub fn verify_admin_key(&self, key: &str) -> bool {
         key == self.inner.admin_key
+    }
+
+    /// 添加公开存储引擎
+    pub async fn add_public_storage<T, U>(&self, name: T, prefix: U, driver: impl Into<AllDriver>)
+    where
+        T: Into<String>,
+        U: Into<String>,
+    {
+        let prefix_str = prefix.into();
+        let mut registry = self.inner.public_registry.write().await;
+        registry.add_driver(driver, &prefix_str);
+        drop(registry);
+
+        self.inner
+            .storage_names
+            .write()
+            .await
+            .insert(name.into(), prefix_str);
+    }
+
+    /// 获取公开存储引擎注册表
+    pub async fn get_public_registry(&self) -> tokio::sync::RwLockReadGuard<'_, StorageRegistry> {
+        self.inner.public_registry.read().await
     }
 }

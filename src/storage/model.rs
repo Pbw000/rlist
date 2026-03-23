@@ -18,7 +18,7 @@ pub use super::file_meta::Meta;
 pub type FileMeta = Meta;
 
 /// 文件列表响应
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FileList {
     /// 文件列表
     pub items: Vec<FileMeta>,
