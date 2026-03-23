@@ -19,7 +19,7 @@ impl<T: Storage> PartialStorage<T> {
     }
 
     fn handle_path(&self, path: &str) -> String {
-        format!("/{}/{}", self.prefix_path, path)
+        format!("/{}/{}", self.prefix_path, path.trim_start_matches('/'))
     }
 }
 

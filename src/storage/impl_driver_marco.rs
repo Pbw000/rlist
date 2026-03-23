@@ -1,51 +1,6 @@
-/// 宏用于自动生成 Storage 枚举和 trait 实现
-///
-/// 用法（单个 extension）：
-/// ```rust
-/// impl_storage_enum! {
-///     EnumName: ErrorType,
-///     drivers: [
-///         Variant1: Type1,
-///         Variant2: Type2
-///     ],
-///     extension: PartialStorage
-/// }
-/// ```
-///
-/// 用法（多个 extensions）：
-/// ```rust
-/// impl_storage_enum! {
-///     EnumName: ErrorType,
-///     drivers: [
-///         Variant1: Type1,
-///         Variant2: Type2
-///     ],
-///     extensions: [PartialStorage, AnotherExt]
-/// }
-/// ```
-///
-/// 注意：`extensions` 目前只使用数组中的第一个类型
-
 #[macro_export]
 macro_rules! impl_storage_enum {
-    // 带多个 extension 类型的版本 - 只使用第一个类型
-    (
-        $enum_name:ident: $error_type:ty,
-        drivers: [
-            $($variant:ident: $ty:ty),+ $(,)?
-        ],
-        extensions: [$first_ext:ty $(, $rest:ty)*]
-    ) => {
-        $crate::impl_storage_enum! {
-            $enum_name: $error_type,
-            drivers: [
-                $($variant: $ty),+
-            ],
-            extension: $first_ext
-        }
-    };
-
-    // 带单个 extension 类型的版本
+    // 带单个 extension 类型的版本（支持 driver 和 extension 的笛卡尔积组合）
     (
         $enum_name:ident: $error_type:ty,
         drivers: [
@@ -57,10 +12,12 @@ macro_rules! impl_storage_enum {
             // 生成枚举定义 - 包含普通驱动和 extension 扩展变体
             #[allow(non_camel_case_types)]
             pub enum $enum_name {
+                // 普通驱动变体
                 $($variant($ty),)+
+                // 扩展变体：为每个 driver 生成与 extension 的组合
                 $(
                     /// 带包装器的存储变体
-                    [<$variant$ext>]($ext<$ty>),
+                    [<$variant $ext>]($ext<$ty>),
                 )+
             }
 
@@ -77,7 +34,7 @@ macro_rules! impl_storage_enum {
             $(
                 impl From<$ext<$ty>> for $enum_name {
                     fn from(storage: $ext<$ty>) -> Self {
-                        $enum_name::[<$variant$ext>](storage)
+                        $enum_name::[<$variant $ext>](storage)
                     }
                 }
             )+
@@ -92,7 +49,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::build_cache(driver).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::build_cache(driver).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -103,7 +60,7 @@ macro_rules! impl_storage_enum {
                     match self {
                         $($enum_name::$variant(driver) => <$ty as $crate::Storage>::name(driver),)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => <$ext<$ty> as $crate::Storage>::name(driver),
+                            $enum_name::[<$variant $ext>](driver) => <$ext<$ty> as $crate::Storage>::name(driver),
                         )+
                     }
                 }
@@ -112,7 +69,7 @@ macro_rules! impl_storage_enum {
                     match self {
                         $($enum_name::$variant(driver) => <$ty as $crate::Storage>::driver_name(driver),)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => <$ext<$ty> as $crate::Storage>::driver_name(driver),
+                            $enum_name::[<$variant $ext>](driver) => <$ext<$ty> as $crate::Storage>::driver_name(driver),
                         )+
                     }
                 }
@@ -123,7 +80,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::handle_path(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::handle_path(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -141,7 +98,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::list_files(driver, path, page_size, cursor).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::list_files(driver, path, page_size, cursor).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -154,7 +111,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::get_meta(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::get_meta(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -167,7 +124,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::get_download_meta_by_path(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::get_download_meta_by_path(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -180,7 +137,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::download_file(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::download_file(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -193,7 +150,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::create_folder(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::create_folder(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -206,7 +163,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::delete(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::delete(driver, path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -219,7 +176,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::rename(driver, old_path, new_name).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::rename(driver, old_path, new_name).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -232,7 +189,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::copy(driver, source_path, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::copy(driver, source_path, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -245,7 +202,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::move_(driver, source_path, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::move_(driver, source_path, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -256,7 +213,7 @@ macro_rules! impl_storage_enum {
                     match self {
                         $($enum_name::$variant(driver) => <$ty as $crate::Storage>::upload_mode(driver),)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => <$ext<$ty> as $crate::Storage>::upload_mode(driver),
+                            $enum_name::[<$variant $ext>](driver) => <$ext<$ty> as $crate::Storage>::upload_mode(driver),
                         )+
                     }
                 }
@@ -267,7 +224,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::get_upload_info(driver, path, size).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::get_upload_info(driver, path, size).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -280,7 +237,7 @@ macro_rules! impl_storage_enum {
                             <$ty as $crate::Storage>::upload_file(driver, path, content).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => {
+                            $enum_name::[<$variant $ext>](driver) => {
                                 <$ext<$ty> as $crate::Storage>::upload_file(driver, path, content).await.map_err(|e| Into::<$error_type>::into(e))
                             },
                         )+
@@ -308,7 +265,7 @@ macro_rules! impl_storage_enum {
                     match self {
                         $($enum_name::$variant(driver) => <$ty as $crate::Storage>::auth_template(driver),)+
                         $(
-                            $enum_name::[<$variant$ext>](driver) => <$ext<$ty> as $crate::Storage>::auth_template(driver),
+                            $enum_name::[<$variant $ext>](driver) => <$ext<$ty> as $crate::Storage>::auth_template(driver),
                         )+
                     }
                 }

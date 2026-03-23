@@ -11,7 +11,7 @@ impl_storage_enum! {
         Mcloud: McloudStorage,
         LocalStorage: LocalStorage
     ],
-    extensions: [PartialStorage]
+    extension: PartialStorage
 }
 
 pub type StorageRegistry = FusedStorage<AllDriver>;

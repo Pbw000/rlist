@@ -47,7 +47,7 @@ impl Clone for McloudStorage {
         Self {
             config: self.config.clone(),
             client: Arc::clone(&self.client),
-            path_cache: RwLock::new(RadixTree::new()), // Create a new empty cache for the clone
+            path_cache: RwLock::new(RadixTree::new()),
         }
     }
 }
@@ -644,7 +644,6 @@ impl McloudStorage {
         cache.insert(path, cache_entry);
     }
 
-    /// 批量更新缓存（用于列表操作）
     async fn update_cache_batch(&self, entries: Vec<(String, CacheEntry)>) {
         let mut cache = self.path_cache.write().await;
         for (path, cache_entry) in entries {
@@ -699,8 +698,6 @@ impl McloudStorage {
         Ok(())
     }
 }
-
-// ============== 统一的 Storage trait 实现 ==============
 
 use std::future::Future;
 

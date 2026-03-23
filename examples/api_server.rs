@@ -8,7 +8,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "localhost:10000".to_owned();
     let admin_key = uuid::Uuid::new_v4().to_string();
     println!("Admin key:{}", admin_key);
-    // 创建 API 配置
     let config = ApiConfig {
         addr: addr.clone(),
         admin_key: admin_key,
