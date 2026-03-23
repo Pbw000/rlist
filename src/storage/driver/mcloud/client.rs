@@ -1048,11 +1048,10 @@ impl McloudStorage {
             || response.uploadId.is_none()
             || response.partInfos.is_none()
         {
-            // 秒传成功，直接返回文件 ID，无需实际上传
             return Ok(UploadCreateInfo {
                 file_id: response.fileId,
-                upload_id: String::new(),  // 空 upload_id 表示秒传
-                upload_url: String::new(), // 空 upload_url 表示无需上传
+                upload_id: String::new(),
+                upload_url: String::new(),
                 part_size: 0,
                 part_offset: 0,
             });

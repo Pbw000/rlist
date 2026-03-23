@@ -10,6 +10,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs::File;
+use tracing::{error, warn};
 
 /// Salt 长度（字节）
 const SALT_LENGTH: usize = 32;
@@ -19,6 +20,12 @@ const MAX_FAIL_COUNT: u32 = 5;
 
 /// 账户封禁时长（10 分钟）
 const BAN_DURATION: Duration = Duration::from_secs(600);
+
+/// 最小密码长度
+const MIN_PASSWORD_LENGTH: usize = 8;
+
+/// 最大用户名长度
+const MAX_USERNAME_LENGTH: usize = 64;
 
 /// 用户权限标志位
 #[derive(Clone, Copy, Debug, Default)]
@@ -122,7 +129,6 @@ pub struct UserCredentialsStore {
 }
 
 impl UserCredentialsStore {
-    /// 创建新的用户凭证存储（自动初始化数据库表）
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = std::path::Path::new(database_url).parent() {
@@ -130,8 +136,6 @@ impl UserCredentialsStore {
             File::create(database_url).await.ok();
         }
         let pool = SqlitePool::connect(database_url).await?;
-
-        // 创建用户凭证表（添加 permissions、fail_count、ban_exp 字段）
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS user_credentials (
@@ -160,8 +164,20 @@ impl UserCredentialsStore {
         password: String,
         permissions: UserPermissions,
     ) -> Result<(), (StatusCode, String)> {
-        if username.is_empty() || password.is_empty() {
-            return Err((StatusCode::BAD_REQUEST, "用户名或密码不能为空".to_string()));
+        // 验证用户名
+        if username.is_empty() || username.len() > MAX_USERNAME_LENGTH {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("用户名长度必须在 1-{} 个字符之间", MAX_USERNAME_LENGTH),
+            ));
+        }
+
+        // 验证密码强度
+        if password.len() < MIN_PASSWORD_LENGTH {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("密码长度至少为 {} 个字符", MIN_PASSWORD_LENGTH),
+            ));
         }
 
         // 检查用户名是否已存在
@@ -171,9 +187,10 @@ impl UserCredentialsStore {
                 .fetch_optional(&*self.pool)
                 .await
                 .map_err(|e| {
+                    error!("注册时数据库错误：{}", e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("数据库错误：{}", e),
+                        "服务器内部错误".to_string(),
                     )
                 })?;
 
@@ -199,9 +216,10 @@ impl UserCredentialsStore {
         .execute(&*self.pool)
         .await
         .map_err(|e| {
+            error!("注册用户凭证时数据库错误：{}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("数据库错误：{}", e),
+                "服务器内部错误".to_string(),
             )
         })?;
 
@@ -222,28 +240,31 @@ impl UserCredentialsStore {
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
+            error!("认证时数据库错误：{}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("数据库错误：{}", e),
+                "服务器内部错误".to_string(),
             )
         })?;
 
         let (salt_bytes, stored_hash, permissions_bits, fail_count, ban_exp) = match result {
             Some((salt, hash, perms, fails, ban)) => (salt, hash, perms, fails, ban),
             None => {
-                return Err((StatusCode::UNAUTHORIZED, "用户不存在".to_string()));
+                // 用户不存在时也要消耗时间，防止时序攻击
+                let delay = rand::rng().random_range(100..=2000);
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                warn!("用户 '{}' 不存在", username);
+                return Err((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()));
             }
         };
 
         // 检查账户是否处于封禁状态
         if let Some(ban_time) = ban_exp {
             if Utc::now() < ban_time {
+                warn!("用户 '{}' 处于封禁状态", username);
                 return Err((
                     StatusCode::FORBIDDEN,
-                    format!(
-                        "账户已被封禁，请封禁结束后再试（剩余时间：{:?}）",
-                        ban_time.signed_duration_since(Utc::now())
-                    ),
+                    "账户已被封禁，请稍后再试".to_string(),
                 ));
             } else {
                 // 封禁已过期，重置 fail_count 和 ban_exp
@@ -254,9 +275,10 @@ impl UserCredentialsStore {
                 .execute(&*self.pool)
                 .await
                 .map_err(|e| {
+                    error!("重置封禁状态时数据库错误：{}", e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("数据库错误：{}", e),
+                        "服务器内部错误".to_string(),
                     )
                 })?;
             }
@@ -264,9 +286,10 @@ impl UserCredentialsStore {
 
         // 验证密码 (使用存储的 salt)
         let salt: [u8; SALT_LENGTH] = salt_bytes.try_into().map_err(|_| {
+            error!("用户 '{}' salt 格式错误", username);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Salt 格式错误".to_string(),
+                "服务器内部错误".to_string(),
             )
         })?;
 
@@ -286,14 +309,16 @@ impl UserCredentialsStore {
                 .execute(&*self.pool)
                 .await
                 .map_err(|e| {
+                    error!("封禁用户 '{}' 时数据库错误：{}", username, e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("数据库错误：{}", e),
+                        "服务器内部错误".to_string(),
                     )
                 })?;
+                warn!("用户 '{}' 密码错误次数过多，已被封禁", username);
                 return Err((
                     StatusCode::FORBIDDEN,
-                    format!("密码错误次数过多，账户已被封禁 10 分钟"),
+                    "密码错误次数过多，账户已被封禁".to_string(),
                 ));
             } else {
                 // 更新失败计数
@@ -303,12 +328,14 @@ impl UserCredentialsStore {
                     .execute(&*self.pool)
                     .await
                     .map_err(|e| {
+                        error!("更新失败计数时数据库错误：{}", e);
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("数据库错误：{}", e),
+                            "服务器内部错误".to_string(),
                         )
                     })?;
-                return Err((StatusCode::UNAUTHORIZED, "密码错误".to_string()));
+                warn!("用户 '{}' 密码错误", username);
+                return Err((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()));
             }
         }
 
@@ -321,9 +348,10 @@ impl UserCredentialsStore {
         .execute(&*self.pool)
         .await
         .map_err(|e| {
+            error!("重置失败计数时数据库错误：{}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("数据库错误：{}", e),
+                "服务器内部错误".to_string(),
             )
         })?;
 
@@ -342,9 +370,10 @@ impl UserCredentialsStore {
             .execute(&*self.pool)
             .await
             .map_err(|e| {
+                error!("更新用户 '{}' 权限时数据库错误：{}", username, e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("数据库错误：{}", e),
+                    "服务器内部错误".to_string(),
                 )
             })?;
         Ok(())
@@ -375,7 +404,6 @@ impl UserCredentialsStore {
         }
     }
 
-    /// 获取所有用户名列表
     pub async fn list_usernames(&self) -> Result<Vec<String>, sqlx::Error> {
         let usernames = sqlx::query_scalar("SELECT username FROM user_credentials")
             .fetch_all(&*self.pool)
@@ -394,9 +422,10 @@ impl UserCredentialsStore {
                 .fetch_optional(&*self.pool)
                 .await
                 .map_err(|e| {
+                    error!("获取用户 '{}' 权限时数据库错误：{}", username, e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("数据库错误：{}", e),
+                        "服务器内部错误".to_string(),
                     )
                 })?;
 
@@ -407,8 +436,6 @@ impl UserCredentialsStore {
     }
 }
 
-/// SHA512 密码哈希
-/// 使用 salt + username + password 组合进行哈希
 fn hash_password_sha512(password: &str, username: &str, salt: &[u8]) -> String {
     let mut hasher = Sha512::new();
     hasher.update(salt);
