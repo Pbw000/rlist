@@ -122,7 +122,7 @@ impl UserCredentialsStore {
         // Create parent directory if it doesn't exist
         if let Some(parent) = std::path::Path::new(database_url).parent() {
             let _ = std::fs::create_dir_all(parent);
-            File::create(database_url).await.ok();
+            File::create_new(database_url).await.ok();
         }
         let pool = SqlitePool::connect(database_url).await?;
         sqlx::query(
