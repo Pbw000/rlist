@@ -4,6 +4,7 @@ use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::api::state::AppState;
 use crate::auth::auth::AuthConfig;
 
 /// API 响应包装器
@@ -44,6 +45,9 @@ impl<T: Serialize> axum::response::IntoResponse for ApiResponse<T> {
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
+    pub salt: u64,
+    pub timestamp: u64,
+    pub claim: String,
 }
 
 /// 登录请求
@@ -51,6 +55,9 @@ pub struct RegisterRequest {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    pub salt: u64,
+    pub timestamp: u64,
+    pub claim: String,
 }
 
 /// 登录响应
@@ -68,8 +75,32 @@ pub struct RegisterResponse {
 /// 用户注册
 pub async fn register(
     State(auth_config): State<Arc<AuthConfig>>,
+    State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
 ) -> impl axum::response::IntoResponse {
+    let challenge = &state.inner.challenge;
+
+    // 验证时间戳
+    if let Err(err) = challenge.validate_timestamp(payload.timestamp) {
+        let resp: ApiResponse<RegisterResponse> =
+            ApiResponse::error(400, format!("时间戳无效：{}", err));
+        return resp;
+    }
+
+    // 验证 challenge (payload = timestamp + username + password)
+    let challenge_payload = format!(
+        "{}{}{}",
+        payload.timestamp, payload.username, payload.password
+    );
+    if let Err(_) = challenge
+        .validate(payload.salt, &payload.claim, &challenge_payload)
+        .await
+    {
+        let resp: ApiResponse<RegisterResponse> =
+            ApiResponse::error(400, "Challenge 验证失败".to_string());
+        return resp;
+    }
+
     match auth_config
         .register(payload.username, payload.password)
         .await
@@ -91,8 +122,32 @@ pub async fn register(
 /// 用户登录
 pub async fn login(
     State(auth_config): State<Arc<AuthConfig>>,
+    State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> impl axum::response::IntoResponse {
+    let challenge = &state.inner.challenge;
+
+    // 验证时间戳
+    if let Err(err) = challenge.validate_timestamp(payload.timestamp) {
+        let resp: ApiResponse<LoginResponse> =
+            ApiResponse::error(400, format!("时间戳无效：{}", err));
+        return resp;
+    }
+
+    // 验证 challenge (payload = timestamp + username + password)
+    let challenge_payload = format!(
+        "{}{}{}",
+        payload.timestamp, payload.username, payload.password
+    );
+    if let Err(_) = challenge
+        .validate(payload.salt, &payload.claim, &challenge_payload)
+        .await
+    {
+        let resp: ApiResponse<LoginResponse> =
+            ApiResponse::error(400, "Challenge 验证失败".to_string());
+        return resp;
+    }
+
     match auth_config.login(payload.username, payload.password).await {
         Ok(token) => {
             let resp: ApiResponse<LoginResponse> = ApiResponse::success(LoginResponse { token });
@@ -114,4 +169,16 @@ pub async fn get_current_user(
     ApiResponse::success(serde_json::json!({
         "message": "已认证"
     }))
+}
+
+/// Challenge 响应
+#[derive(Debug, Serialize)]
+pub struct ChallengeResponse {
+    pub salt: u64,
+}
+
+/// 获取 Challenge
+pub async fn get_challenge(State(state): State<AppState>) -> impl axum::response::IntoResponse {
+    let salt_value = state.inner.challenge.challenge.get_current_salt();
+    ApiResponse::success(ChallengeResponse { salt: salt_value })
 }

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::auth::auth::AuthConfig;
+use crate::auth::challenge::ChallengeTask;
 use crate::{
     Storage,
     error::RlistError,
@@ -29,11 +30,16 @@ pub struct AppStateInner {
     pub auth_config: Arc<AuthConfig>,
     /// 公开存储引擎注册表（用于无需认证的访问）
     pub public_registry: RwLock<StorageRegistry>,
+    /// Challenge 任务
+    pub challenge: ChallengeTask<4, 300>,
 }
 
 impl AppState {
     /// 创建新的应用状态
     pub fn new(admin_key: String, auth_config: Arc<AuthConfig>) -> Self {
+        let challenge = ChallengeTask::new();
+        // 启动 challenge 轮换（每 30 秒）
+        challenge.start_rotate(30);
         Self {
             inner: Arc::new(AppStateInner {
                 registry: RwLock::new(StorageRegistry::new()),
@@ -41,6 +47,7 @@ impl AppState {
                 admin_key,
                 auth_config,
                 public_registry: RwLock::new(StorageRegistry::new()),
+                challenge,
             }),
         }
     }

@@ -92,11 +92,11 @@ pub fn hmac_verify(key: &[u8], data: &[u8], signature: &[u8]) -> RlistResult<boo
 }
 
 /// 文件校验和
-pub struct FileChecksum {
+pub struct ChecksumHasher {
     context: Context,
 }
 
-impl FileChecksum {
+impl ChecksumHasher {
     pub fn new() -> Self {
         Self {
             context: Context::new(&SHA256),
@@ -116,7 +116,7 @@ impl FileChecksum {
     }
 }
 
-impl Default for FileChecksum {
+impl Default for ChecksumHasher {
     fn default() -> Self {
         Self::new()
     }

@@ -1,4 +1,4 @@
-use crate::crypto::FileChecksum;
+use crate::crypto::ChecksumHasher;
 use crate::error::StorageError;
 use crate::storage::file_meta::DownloadableMeta;
 use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
@@ -178,7 +178,7 @@ impl Storage for LocalStorage {
             let mut file = File::open(&normalized)
                 .await
                 .map_err(|e| StorageError::NotFound(e.to_string()))?;
-            let mut check_sum = FileChecksum::new();
+            let mut check_sum = ChecksumHasher::new();
             let mut buffer = [0; 1024];
 
             loop {

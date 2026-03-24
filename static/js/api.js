@@ -19,6 +19,64 @@ function getAuthHeaders() {
 }
 
 /**
+ * 使用 Web Crypto API 计算 SHA256 哈希
+ * @param {string} message - 输入消息
+ * @returns {Promise<string>} - 十六进制哈希字符串
+ */
+async function sha256(message) {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 获取 Challenge
+ * @returns {Promise<Object>} - Challenge 结果
+ */
+async function getChallenge() {
+  try {
+    const response = await fetch(`${API_BASE}/challenge`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.code === 200 && result.data) {
+      return { success: true, salt: result.data.salt };
+    } else {
+      return {
+        success: false,
+        message: result.message || "获取 Challenge 失败",
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: "网络错误：" + error.message,
+    };
+  }
+}
+
+/**
+ * 计算 Challenge Proof
+ * @param {number} salt - Salt 值
+ * @param {number} timestamp - 时间戳（秒）
+ * @param {string} username - 用户名
+ * @param {string} password - 密码
+ * @returns {Promise<string>} - Challenge claim
+ */
+async function calculateChallengeProof(salt, timestamp, username, password) {
+  const saltHex = salt.toString(16);
+  const payload = `${timestamp}${username}${password}`;
+  return await sha256(saltHex + payload);
+}
+
+/**
  * 统一的 API 请求方法
  * @param {string} endpoint - API 端点
  * @param {Object} options - fetch 选项
@@ -149,10 +207,28 @@ async function checkAuth() {
  */
 async function login(username, password) {
   try {
+    // 获取 challenge
+    const challengeResult = await getChallenge();
+    if (!challengeResult.success) {
+      return { success: false, message: challengeResult.message };
+    }
+    const salt = challengeResult.salt;
+
+    // 获取当前时间戳（秒）
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // 计算 challenge proof
+    const claim = await calculateChallengeProof(
+      salt,
+      timestamp,
+      username,
+      password,
+    );
+
     const response = await fetch(`${API_BASE}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, salt, timestamp, claim }),
     });
 
     if (!response.ok) {
@@ -183,10 +259,28 @@ async function login(username, password) {
  */
 async function register(username, password) {
   try {
+    // 获取 challenge
+    const challengeResult = await getChallenge();
+    if (!challengeResult.success) {
+      return { success: false, message: challengeResult.message };
+    }
+    const salt = challengeResult.salt;
+
+    // 获取当前时间戳（秒）
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // 计算 challenge proof
+    const claim = await calculateChallengeProof(
+      salt,
+      timestamp,
+      username,
+      password,
+    );
+
     const response = await fetch(`${API_BASE}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, salt, timestamp, claim }),
     });
 
     const result = await response.json();
