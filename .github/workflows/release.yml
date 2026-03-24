@@ -9,39 +9,91 @@ on:
 permissions:
   contents: write
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-gnu
-          - aarch64-unknown-linux-musl
-          - x86_64-pc-windows-msvc
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTFLAGS: "-D warnings"
 
+jobs:
+  build-linux-gnu:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: ${{ matrix.target }}
+          target: x86_64-unknown-linux-gnu
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rlist-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/
+          name: rlist-x86_64-unknown-linux-gnu
+          path: target/x86_64-unknown-linux-gnu/release/rlist
+
+  build-linux-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-unknown-linux-musl
+
+      - name: Build
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rlist-x86_64-unknown-linux-musl
+          path: target/x86_64-unknown-linux-musl/release/rlist
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rlist-x86_64-pc-windows-msvc
+          path: target/release/rlist.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rlist-aarch64-apple-darwin
+          path: target/release/rlist
 
   release:
-    needs: build
+    needs: [build-linux-gnu, build-linux-musl, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,16 +111,16 @@ jobs:
           for dir in rlist-*; do
             target=$(echo $dir | sed 's/rlist-//')
             if [[ $target == *"windows"* ]]; then
-              zip -r ${dir}.zip $dir
+              zip -r rlist-${{ github.ref_name }}-${target}.zip $dir
             else
-              tar -czvf ${dir}.tar.gz $dir
+              tar -czvf rlist-${{ github.ref_name }}-${target}.tar.gz $dir
             fi
           done
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: artifacts/rlist-*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
