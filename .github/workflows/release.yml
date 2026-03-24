@@ -37,18 +37,24 @@ jobs:
 
   build-linux-musl:
     runs-on: ubuntu-latest
-    container: rust:alpine
     steps:
       - uses: actions/checkout@v4
 
       - name: Install musl tools
         run: |
-          apk add --no-cache musl-dev
+          sudo apt-get update
+          sudo apt-get install -y musl-dev musl-tools clang
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: x86_64-unknown-linux-musl
+
+      - name: Configure musl linker
+        run: |
+          mkdir -p .cargo
+          echo '[target.x86_64-unknown-linux-musl]' > .cargo/config.toml
+          echo 'linker = "musl-gcc"' >> .cargo/config.toml
 
       - name: Build
         run: cargo build --release --bin rlist --target x86_64-unknown-linux-musl
