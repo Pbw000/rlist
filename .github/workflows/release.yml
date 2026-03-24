@@ -33,6 +33,7 @@ jobs:
         with:
           name: rlist-x86_64-unknown-linux-gnu
           path: target/x86_64-unknown-linux-gnu/release/rlist
+          if-no-files-found: error
 
   build-linux-musl:
     runs-on: ubuntu-latest
@@ -42,7 +43,7 @@ jobs:
       - name: Install musl tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
+          sudo apt-get install -y musl-dev musl-tools
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -57,6 +58,7 @@ jobs:
         with:
           name: rlist-x86_64-unknown-linux-musl
           path: target/x86_64-unknown-linux-musl/release/rlist
+          if-no-files-found: error
 
   build-windows:
     runs-on: windows-latest
@@ -74,6 +76,7 @@ jobs:
         with:
           name: rlist-x86_64-pc-windows-msvc
           path: target/release/rlist.exe
+          if-no-files-found: error
 
   release:
     needs: [build-linux-gnu, build-linux-musl, build-windows]
@@ -86,30 +89,34 @@ jobs:
         with:
           pattern: rlist-*
           merge-multiple: true
-          path: ${{ github.workspace }}/artifacts
+          path: artifacts
 
-      - name: List artifacts
-        run: ls -la ${{ github.workspace }}/artifacts
+      - name: List downloaded artifacts
+        run: ls -R artifacts
 
       - name: Create release archives
-        working-directory: ${{ github.workspace }}/artifacts
         run: |
-          for dir in rlist-*; do
-            target=$(echo $dir | sed 's/rlist-//')
-            if [[ $target == *"windows"* ]]; then
-              zip -r rlist-${{ github.ref_name }}-${target}.zip $dir
-            else
-              tar -czvf rlist-${{ github.ref_name }}-${target}.tar.gz $dir
+          cd artifacts
+          for file in rlist-*; do
+            if [ -f "$file" ]; then
+              target=$(basename "$file")
+              if [[ $target == *.exe ]]; then
+                zip -r rlist-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip $file
+              elif [[ $target == *musl* ]]; then
+                tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz $file
+              elif [[ $target == *gnu* ]]; then
+                tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz $file
+              fi
             fi
           done
 
       - name: List archives
-        run: ls -la ${{ github.workspace }}/artifacts
+        run: ls -la artifacts
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ github.workspace }}/artifacts/rlist-*
+          files: artifacts/rlist-*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
