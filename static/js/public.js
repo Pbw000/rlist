@@ -624,12 +624,6 @@ async function rerenderPdf() {
  * 隐藏预览模态框
  */
 function hidePreviewModal() {
-  // 取消正在进行的下载
-  if (previewXhr) {
-    previewXhr.abort();
-    previewXhr = null;
-  }
-
   document.getElementById("previewModal").style.display = "none";
   document.getElementById("previewContent").innerHTML = "";
   previewPdfDoc = null;
