@@ -481,8 +481,6 @@ pub struct StorageInfo {
     pub status: String,
 }
 
-// ==================== 认证接口 ====================
-
 /// 注册请求
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {

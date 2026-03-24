@@ -17,11 +17,8 @@ use crate::auth::user_store::{UserCredentialsStore, UserPermissions};
 #[derive(Clone)]
 pub struct AuthConfig {
     pub secret_key: Vec<u8>,
-    /// 用户 ID -> AuthInfo (运行时动态管理，每次启动随机 ID)
     pub users: Arc<RwLock<HashMap<u128, AuthInfo>>>,
-    /// 用户名 -> 用户 ID 映射 (运行时动态管理)
     pub username_to_id: Arc<RwLock<HashMap<String, u128>>>,
-    /// 用户凭证存储 (用户名 -> salt + password_hash)
     pub credentials_store: Arc<UserCredentialsStore>,
 }
 
@@ -73,7 +70,7 @@ impl AuthConfig {
         &self,
         username: String,
         password: String,
-    ) -> Result<String, (StatusCode, String)> {
+    ) -> Result<(), (StatusCode, String)> {
         // 检查用户名是否已存在于内存映射中
         {
             let username_guard = self.username_to_id.read().await;
@@ -113,7 +110,7 @@ impl AuthConfig {
             username_guard.insert(username, user_id);
         }
 
-        Ok(user_id.to_string())
+        Ok(())
     }
 
     /// 用户登录，验证成功后返回 JWT token

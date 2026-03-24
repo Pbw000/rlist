@@ -55,6 +55,7 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
         if claim.len() < DIFFICUITY + 1 {
             return Err(ChallengeError::ValidationFailed);
         }
+        dbg!(&claim);
         if !claim[..DIFFICUITY].chars().all(|c| c == '0') {
             return Err(ChallengeError::ValidationFailed);
         }
