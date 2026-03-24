@@ -59,7 +59,7 @@
                                 placeholder="请输入密码"
                             />
                         </div>
-                        <button class="auth-btn" onclick="login()">
+                        <button class="auth-btn" onclick="handleLogin()">
                             <i class="ti ti-login"></i> 登录
                         </button>
                     </div>
@@ -88,7 +88,7 @@
                                 placeholder="请再次输入密码"
                             />
                         </div>
-                        <button class="auth-btn" onclick="register()">
+                        <button class="auth-btn" onclick="handleRegister()">
                             <i class="ti ti-user-plus"></i> 注册
                         </button>
                     </div>
@@ -117,7 +117,6 @@
                             type="text"
                             id="searchInput"
                             placeholder="搜索文件..."
-                            oninput="handleSearch(this.value)"
                         />
                     </div>
                     <div class="user-info" id="userInfo" style="display: none">
@@ -171,7 +170,7 @@
                     id="uploadInput"
                     style="display: none"
                     multiple
-                    onchange="handleUpload(this.files)"
+                    onchange="handleUploadFiles(this.files)"
                 />
                 <button class="btn btn-secondary" onclick="refresh()">
                     <i class="ti ti-refresh"></i> 刷新
@@ -223,7 +222,6 @@
                     type="text"
                     id="folderNameInput"
                     placeholder="文件夹名称"
-                    onkeydown="if (event.key === 'Enter') createFolder();"
                 />
                 <div class="modal-actions">
                     <button
@@ -243,12 +241,7 @@
         <div class="modal-overlay" id="renameModal" style="display: none">
             <div class="modal">
                 <h2><i class="ti ti-edit"></i> 重命名</h2>
-                <input
-                    type="text"
-                    id="renameInput"
-                    placeholder="新名称"
-                    onkeydown="if (event.key === 'Enter') confirmRename();"
-                />
+                <input type="text" id="renameInput" placeholder="新名称" />
                 <div class="modal-actions">
                     <button
                         class="btn btn-secondary"
@@ -266,22 +259,55 @@
         <!-- Preview Modal -->
         <div class="modal-overlay" id="previewModal" style="display: none">
             <div class="modal preview-modal">
-                <h2><i class="ti ti-eye"></i> 文件预览</h2>
-                <div class="preview-content" id="previewContent"></div>
-                <div class="modal-actions">
-                    <button
-                        class="btn btn-secondary"
-                        onclick="hidePreviewModal()"
-                    >
-                        关闭
-                    </button>
-                    <button
-                        class="btn btn-primary"
-                        id="previewDownloadBtn"
-                        onclick="downloadFromPreview()"
-                    >
-                        下载
-                    </button>
+                <div class="preview-header">
+                    <h2>
+                        <i class="ti ti-eye"></i>
+                        <span id="previewFileName">文件预览</span>
+                    </h2>
+                    <div class="preview-controls">
+                        <button
+                            class="preview-control-btn"
+                            onclick="zoomOut()"
+                            title="缩小"
+                        >
+                            <i class="ti ti-minus"></i>
+                        </button>
+                        <span id="zoomLevel">100%</span>
+                        <button
+                            class="preview-control-btn"
+                            onclick="zoomIn()"
+                            title="放大"
+                        >
+                            <i class="ti ti-plus"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="rotatePreview()"
+                            title="旋转"
+                        >
+                            <i class="ti ti-rotate"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="downloadFromPreview()"
+                            title="下载"
+                        >
+                            <i class="ti ti-download"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="hidePreviewModal()"
+                            title="关闭"
+                        >
+                            <i class="ti ti-x"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="preview-content" id="previewContent">
+                    <div class="preview-placeholder">
+                        <i class="ti ti-file"></i>
+                        <p>加载中...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -381,6 +407,29 @@
         <!-- Context Menu -->
         <div class="context-menu" id="contextMenu" style="display: none"></div>
 
-        <script src="/js/app.js?v=20240323001"></script>
+        <!-- JS 模块 -->
+        <script
+            src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
+            async
+        ></script>
+        <script>
+            // 配置 PDF.js worker
+            if (typeof pdfjsLib !== "undefined") {
+                pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+            }
+            // 后台预加载 PDF.js
+            window.addEventListener("load", () => {
+                // 预加载 PDF.js worker
+                if (typeof pdfjsLib !== "undefined") {
+                    console.log("PDF.js 已加载");
+                }
+            });
+        </script>
+        <script src="/js/utils.js?v=20240323004"></script>
+        <script src="/js/api.js?v=20240323004"></script>
+        <script src="/js/file-manager.js?v=20240323004"></script>
+        <script src="/js/upload.js?v=20240323004"></script>
+        <script src="/js/app.js?v=20240323004"></script>
     </body>
 </html>

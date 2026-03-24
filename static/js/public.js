@@ -1,39 +1,79 @@
-// 公开访问页面 JavaScript
+/**
+ * 公开访问页面 JavaScript
+ * 提供无需登录的文件浏览和下载功能
+ */
+
 // 全局变量
 const API_BASE = "/obs";
 let currentPath = "/";
 let filesData = [];
 let currentView = localStorage.getItem("rlist_public_view") || "list";
-let currentTheme = localStorage.getItem("rlist_public_theme") || "light";
 let previewFilePath = "";
+let contextMenuTarget = null;
+
+// 预览相关全局变量
+let previewZoom = 1;
+let previewRotation = 0;
+let previewPdfDoc = null;
+let previewFileType = "";
 
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
   // 初始化主题
-  if (currentTheme === "dark") {
-    document.documentElement.setAttribute("data-theme", "dark");
-    document.getElementById("themeIcon").className = "ti ti-sun";
+  initTheme();
+
+  // 加载文件列表
+  loadFiles();
+
+  // 绑定搜索事件
+  const searchInput = document.getElementById("searchInput");
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      handleSearch(e.target.value);
+    });
   }
 
-  loadFiles();
+  // 点击关闭上下文菜单
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".context-menu")) {
+      hideContextMenu();
+    }
+  });
 });
 
-// 主题切换
-function toggleTheme() {
-  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-  if (isDark) {
-    document.documentElement.removeAttribute("data-theme");
-    document.getElementById("themeIcon").className = "ti ti-moon";
-    currentTheme = "light";
-  } else {
+/**
+ * 初始化主题
+ */
+function initTheme() {
+  const currentTheme = localStorage.getItem("rlist_public_theme") || "light";
+  if (currentTheme === "dark") {
     document.documentElement.setAttribute("data-theme", "dark");
-    document.getElementById("themeIcon").className = "ti ti-sun";
-    currentTheme = "dark";
+    const themeIcon = document.getElementById("themeIcon");
+    if (themeIcon) themeIcon.className = "ti ti-sun";
   }
-  localStorage.setItem("rlist_public_theme", currentTheme);
 }
 
-// 视图切换
+/**
+ * 主题切换
+ */
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const themeIcon = document.getElementById("themeIcon");
+  if (isDark) {
+    document.documentElement.removeAttribute("data-theme");
+    if (themeIcon) themeIcon.className = "ti ti-moon";
+    localStorage.setItem("rlist_public_theme", "light");
+  } else {
+    document.documentElement.setAttribute("data-theme", "dark");
+    if (themeIcon) themeIcon.className = "ti ti-sun";
+    localStorage.setItem("rlist_public_theme", "dark");
+  }
+}
+
+/**
+ * 视图切换
+ * @param {string} view - 视图类型
+ */
 function setView(view) {
   currentView = view;
   localStorage.setItem("rlist_public_view", view);
@@ -42,19 +82,25 @@ function setView(view) {
   const gridBtn = document.getElementById("gridViewBtn");
 
   if (view === "grid") {
-    fileList.classList.add("grid-view");
-    listBtn.classList.remove("active");
-    gridBtn.classList.add("active");
+    fileList?.classList.add("grid-view");
+    listBtn?.classList.remove("active");
+    gridBtn?.classList.add("active");
   } else {
-    fileList.classList.remove("grid-view");
-    listBtn.classList.add("active");
-    gridBtn.classList.remove("active");
+    fileList?.classList.remove("grid-view");
+    listBtn?.classList.add("active");
+    gridBtn?.classList.remove("active");
   }
 }
 
-// 加载文件列表
-async function loadFiles() {
+/**
+ * 加载文件列表
+ * @param {string} path - 路径
+ */
+async function loadFiles(path = currentPath) {
+  currentPath = path;
   const fileList = document.getElementById("fileList");
+  if (!fileList) return;
+
   fileList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
@@ -67,12 +113,9 @@ async function loadFiles() {
     const result = await response.json();
 
     if (result.code === 200 && result.data) {
-      // 后端返回 FileList 结构：{ items, total, next_cursor }
-      // Meta 枚举：File { name, size, modified_at } 或 Directory { name, modified_at }
       const rawItems = result.data.items || [];
-      // 转换为前端期望的格式
       filesData = rawItems.map((item) => {
-        const isDir = item.File === undefined; // 没有 File 字段就是目录
+        const isDir = item.File === undefined;
         return {
           name: item.File?.name || item.Directory?.name || "unknown",
           path: currentPath.endsWith("/")
@@ -99,9 +142,13 @@ async function loadFiles() {
   }
 }
 
-// 渲染文件列表
+/**
+ * 渲染文件列表
+ * @param {Array} files - 文件列表
+ */
 function renderFiles(files) {
   const fileList = document.getElementById("fileList");
+  if (!fileList) return;
 
   if (!files || files.length === 0) {
     fileList.innerHTML =
@@ -115,54 +162,59 @@ function renderFiles(files) {
   const sortedFiles = [...dirs, ...fileItems];
 
   fileList.innerHTML = `
-                <div class="file-list-header">
-                    <div>名称</div>
-                    <div>大小</div>
-                    <div>修改日期</div>
-                    <div>操作</div>
+    <div class="file-list-header">
+        <div>名称</div>
+        <div>大小</div>
+        <div>修改日期</div>
+        <div>操作</div>
+    </div>
+    ${sortedFiles
+      .map(
+        (file) => `
+        <div class="file-item"
+             data-path="${escapeHtml(file.path)}"
+             data-type="${file.file_type}"
+             oncontextmenu="showContextMenu(event, '${escapeHtml(file.path)}', '${file.file_type}')">
+            <div class="file-main" ondblclick="handleDoubleClick('${escapeHtml(file.path)}', '${file.file_type}')">
+                <div class="file-icon">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
+                <div>
+                    <div class="file-name">${escapeHtml(file.name)}</div>
+                    <div class="file-meta">${file.file_type === "file" ? formatSize(file.size) : "文件夹"}</div>
                 </div>
-                ${sortedFiles
-                  .map(
-                    (file) => `
-                    <div class="file-item"
-                         data-path="${escapeHtml(file.path)}"
-                         data-type="${file.file_type}"
-                         ondblclick="handleDoubleClick('${escapeHtml(file.path)}', '${file.file_type}')">
-                        <div class="file-main" ondblclick="handleDoubleClick('${escapeHtml(file.path)}', '${file.file_type}')">
-                            <div class="file-icon">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
-                            <div>
-                                <div class="file-name">${escapeHtml(file.name)}</div>
-                                <div class="file-meta">${file.file_type === "file" ? formatSize(file.size) : "文件夹"}</div>
-                            </div>
-                        </div>
-                        <div class="file-size">${file.file_type === "file" ? formatSize(file.size) : ""}</div>
-                        <div class="file-date">${file.modified ? formatDate(file.modified) : ""}</div>
-                        <div class="file-actions">
-                            ${
-                              file.file_type === "dir"
-                                ? `
-                                <button class="action-btn" onclick="enterFolder('${escapeHtml(file.path)}')" title="打开">
-                                    <i class="ti ti-folder-open"></i>
-                                </button>
-                            `
-                                : `
-                                <button class="action-btn" onclick="previewFile('${escapeHtml(file.path)}', '${escapeHtml(file.name)}')" title="预览">
-                                    <i class="ti ti-eye"></i>
-                                </button>
-                                <button class="action-btn" onclick="downloadFile('${escapeHtml(file.path)}')" title="下载">
-                                    <i class="ti ti-download"></i>
-                                </button>
-                            `
-                            }
-                        </div>
-                    </div>
-                `,
-                  )
-                  .join("")}
-            `;
+            </div>
+            <div class="file-size">${file.file_type === "file" ? formatSize(file.size) : ""}</div>
+            <div class="file-date">${file.modified ? formatDate(file.modified) : ""}</div>
+            <div class="file-actions">
+                ${
+                  file.file_type === "dir"
+                    ? `
+                    <button class="action-btn" onclick="enterFolder('${escapeHtml(file.path)}')" title="打开">
+                        <i class="ti ti-folder-open"></i>
+                    </button>
+                `
+                    : `
+                    <button class="action-btn" onclick="previewFile('${escapeHtml(file.path)}', '${escapeHtml(file.name)}')" title="预览">
+                        <i class="ti ti-eye"></i>
+                    </button>
+                    <button class="action-btn" onclick="downloadFile('${escapeHtml(file.path)}')" title="下载">
+                        <i class="ti ti-download"></i>
+                    </button>
+                `
+                }
+                <button class="action-btn" onclick="showContextMenuForFile('${escapeHtml(file.path)}', '${file.file_type}')" title="更多">
+                    <i class="ti ti-dots"></i>
+                </button>
+            </div>
+        </div>
+    `,
+      )
+      .join("")}
+  `;
 }
 
-// 更新面包屑导航
+/**
+ * 更新面包屑导航
+ */
 function updateBreadcrumb() {
   const breadcrumb = document.getElementById("breadcrumb");
   const parts = currentPath.split("/").filter((p) => p);
@@ -178,18 +230,28 @@ function updateBreadcrumb() {
   breadcrumb.innerHTML = html;
 }
 
-// 导航到指定路径
+/**
+ * 导航到指定路径
+ * @param {string} path - 路径
+ */
 function navigateTo(path) {
   currentPath = path || "/";
-  loadFiles();
+  loadFiles(currentPath);
 }
 
-// 进入文件夹
+/**
+ * 进入文件夹
+ * @param {string} path - 路径
+ */
 function enterFolder(path) {
   navigateTo(path);
 }
 
-// 双击处理
+/**
+ * 双击处理
+ * @param {string} path - 路径
+ * @param {string} type - 类型
+ */
 function handleDoubleClick(path, type) {
   if (type === "dir") {
     enterFolder(path);
@@ -198,12 +260,17 @@ function handleDoubleClick(path, type) {
   }
 }
 
-// 刷新
+/**
+ * 刷新文件列表
+ */
 function refresh() {
-  loadFiles();
+  loadFiles(currentPath);
 }
 
-// 搜索
+/**
+ * 搜索文件
+ * @param {string} query - 搜索词
+ */
 function handleSearch(query) {
   if (!query) {
     renderFiles(filesData);
@@ -215,13 +282,31 @@ function handleSearch(query) {
   renderFiles(filtered);
 }
 
-// 预览文件
+/**
+ * 预览文件
+ * @param {string} path - 路径
+ * @param {string} name - 文件名
+ */
 async function previewFile(path, name) {
   const ext = name.split(".").pop().toLowerCase();
   const previewContent = document.getElementById("previewContent");
+  const previewFileNameEl = document.getElementById("previewFileName");
   previewFilePath = path;
+  previewZoom = 1;
+  previewRotation = 0;
+  previewPdfDoc = null;
 
-  // 检查是否为可预览的文件类型
+  // 更新文件名显示
+  if (previewFileNameEl) {
+    previewFileNameEl.textContent = name;
+  }
+
+  // 重置缩放显示
+  const zoomLevelEl = document.getElementById("zoomLevel");
+  if (zoomLevelEl) {
+    zoomLevelEl.textContent = "100%";
+  }
+
   const imageExts = ["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico"];
   const videoExts = ["mp4", "webm", "ogg", "mov", "avi", "mkv"];
   const audioExts = ["mp3", "wav", "flac", "aac", "ogg"];
@@ -247,157 +332,451 @@ async function previewFile(path, name) {
   ];
   const docExts = ["pdf"];
 
-  try {
-    // 使用公开下载接口获取文件 URL
-    const url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
-    previewContent.innerHTML = "";
+  // 获取公开下载 URL
+  const url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
+  previewContent.innerHTML =
+    '<div class="preview-placeholder"><i class="ti ti-loader"></i><p>加载中...</p></div>';
 
-    if (imageExts.includes(ext)) {
-      previewContent.innerHTML = `<img src="${url}" alt="${escapeHtml(name)}">`;
-    } else if (videoExts.includes(ext)) {
-      previewContent.innerHTML = `<video controls src="${url}"></video>`;
-    } else if (audioExts.includes(ext)) {
-      previewContent.innerHTML = `<audio controls src="${url}"></audio>`;
-    } else if (textExts.includes(ext)) {
-      // 获取文件内容进行预览
-      try {
-        const contentResponse = await fetch(url);
-        const content = await contentResponse.text();
-        previewContent.innerHTML = `<pre>${escapeHtml(content.substring(0, 50000))}</pre>`;
-      } catch (e) {
-        previewContent.innerHTML = `<p>无法加载文本内容</p>`;
-      }
-    } else if (docExts.includes(ext)) {
-      previewContent.innerHTML = `<iframe src="${url}" style="width:100%;height:500px;border:none;"></iframe>`;
-    } else {
-      previewContent.innerHTML = `<p>此文件类型不支持预览</p><p style="margin-top:8px;color:var(--text-secondary)">您可以下载文件后查看</p>`;
+  if (imageExts.includes(ext)) {
+    previewFileType = "image";
+    previewContent.innerHTML = `<img src="${url}" alt="${escapeHtml(name)}" onload="onImageLoad()" onerror="onPreviewError()">`;
+  } else if (videoExts.includes(ext)) {
+    previewFileType = "video";
+    previewContent.innerHTML = `<video controls src="${url}"></video>`;
+  } else if (audioExts.includes(ext)) {
+    previewFileType = "audio";
+    previewContent.innerHTML = `<audio controls src="${url}"></audio>`;
+  } else if (textExts.includes(ext)) {
+    previewFileType = "text";
+    try {
+      const contentResponse = await fetch(url);
+      const content = await contentResponse.text();
+      previewContent.innerHTML = `<pre>${escapeHtml(content.substring(0, 100000))}</pre>`;
+    } catch (e) {
+      previewContent.innerHTML = `<div class="preview-placeholder"><i class="ti ti-alert-circle"></i><p>无法加载文本内容</p></div>`;
+    }
+  } else if (docExts.includes(ext)) {
+    previewFileType = "pdf";
+    await renderPdfPreview(url, previewContent);
+  } else {
+    previewFileType = "other";
+    previewContent.innerHTML = `<div class="preview-placeholder"><i class="ti ti-file"></i><p>此文件类型不支持预览</p><p style="margin-top:8px;color:var(--text-secondary)">您可以下载文件后查看</p></div>`;
+  }
+
+  document.getElementById("previewModal").style.display = "flex";
+}
+
+/**
+ * 渲染 PDF 预览
+ * @param {string} url - PDF URL
+ * @param {HTMLElement} container - 容器元素
+ */
+async function renderPdfPreview(url, container) {
+  // 检查 PDF.js 是否已加载
+  if (typeof pdfjsLib === "undefined") {
+    // PDF.js 还在加载中，显示加载进度
+    container.innerHTML = `
+      <div class="pdf-loading">
+        <div class="spinner"></div>
+        <p class="loading-text">正在加载 PDF 组件...</p>
+        <div class="progress-bar"><div class="progress" style="width: 30%"></div></div>
+      </div>`;
+
+    // 等待 PDF.js 加载
+    await waitForPdfJs();
+
+    if (typeof pdfjsLib === "undefined") {
+      container.innerHTML = `<div class="preview-placeholder">
+        <i class="ti ti-alert-circle"></i>
+        <p>PDF 预览功能加载失败</p>
+        <p style="margin-top:8px;color:var(--text-secondary)">请检查网络连接</p>
+      </div>`;
+      return;
+    }
+  }
+
+  // 显示加载进度
+  container.innerHTML = `
+    <div class="pdf-loading">
+      <div class="spinner"></div>
+      <p class="loading-text">正在加载 PDF 文件...</p>
+      <div class="progress-bar"><div class="progress" style="width: 0%"></div></div>
+      <p class="loading-percent">0%</p>
+    </div>`;
+
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      url: url,
+      // 配置加载参数
+      cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/",
+      cMapPacked: true,
+    });
+
+    // 监听加载进度
+    loadingTask.onProgress = function (progress) {
+      const percent = Math.round((progress.loaded / progress.total) * 100);
+      const progressBar = container.querySelector(".progress");
+      const percentText = container.querySelector(".loading-percent");
+      if (progressBar) progressBar.style.width = `${percent}%`;
+      if (percentText) percentText.textContent = `${percent}%`;
+    };
+
+    previewPdfDoc = await loadingTask.promise;
+
+    container.innerHTML =
+      '<div class="pdf-page-container" id="pdfPageContainer"></div>';
+    const pageContainer = document.getElementById("pdfPageContainer");
+
+    // 渲染所有页面
+    for (let pageNum = 1; pageNum <= previewPdfDoc.numPages; pageNum++) {
+      const pageDiv = document.createElement("div");
+      pageDiv.className = "pdf-page";
+      pageDiv.style.marginBottom = "16px";
+
+      const canvas = document.createElement("canvas");
+      canvas.className = "pdf-canvas";
+      canvas.id = `pdf-page-${pageNum}`;
+      pageDiv.appendChild(canvas);
+      pageContainer.appendChild(pageDiv);
+
+      const page = await previewPdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({
+        scale: previewZoom,
+        rotation: previewRotation,
+      });
+
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      await page.render({
+        canvasContext: canvas.getContext("2d"),
+        viewport: viewport,
+      }).promise;
     }
 
-    document.getElementById("previewModal").style.display = "flex";
+    // 更新页面计数
+    const info = document.createElement("div");
+    info.style.color = "var(--text-secondary)";
+    info.style.fontSize = "12px";
+    info.style.marginTop = "8px";
+    info.textContent = `共 ${previewPdfDoc.numPages} 页`;
+    pageContainer.appendChild(info);
   } catch (error) {
-    showToast("预览失败：" + error.message, "error");
+    console.error("PDF 渲染失败:", error);
+    container.innerHTML = `<div class="preview-placeholder">
+      <i class="ti ti-alert-circle"></i>
+      <p>PDF 加载失败</p>
+      <p style="margin-top:8px;color:var(--text-secondary)">${error.message}</p>
+    </div>`;
   }
 }
 
-// 隐藏预览模态框
-function hidePreviewModal() {
-  document.getElementById("previewModal").style.display = "none";
-  document.getElementById("previewContent").innerHTML = "";
+/**
+ * 等待 PDF.js 加载完成
+ * @returns {Promise<void>}
+ */
+function waitForPdfJs() {
+  return new Promise((resolve) => {
+    let attempts = 0;
+    const maxAttempts = 50; // 最多等待 5 秒
+
+    const checkInterval = setInterval(() => {
+      if (typeof pdfjsLib !== "undefined") {
+        clearInterval(checkInterval);
+        resolve();
+      } else {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          clearInterval(checkInterval);
+          resolve(); // 超时也返回
+        }
+      }
+    }, 100);
+  });
 }
 
-// 从预览下载
+/**
+ * 图片加载完成
+ */
+function onImageLoad() {
+  // 可以在这里调整初始缩放
+}
+
+/**
+ * 预览错误处理
+ */
+function onPreviewError() {
+  const previewContent = document.getElementById("previewContent");
+  previewContent.innerHTML = `<div class="preview-placeholder">
+    <i class="ti ti-alert-circle"></i>
+    <p>加载失败</p>
+  </div>`;
+  showToast("预览加载失败", "error");
+}
+
+/**
+ * 放大
+ */
+function zoomIn() {
+  if (previewFileType === "pdf") {
+    previewZoom += 0.25;
+    updateZoomDisplay();
+    if (previewPdfDoc) {
+      rerenderPdf();
+    }
+  } else if (previewFileType === "image") {
+    previewZoom += 0.25;
+    updateZoomDisplay();
+    const img = document.querySelector(".preview-content img");
+    if (img) {
+      img.style.transform = `scale(${previewZoom})`;
+    }
+  }
+}
+
+/**
+ * 缩小
+ */
+function zoomOut() {
+  if (previewZoom > 0.5) {
+    if (previewFileType === "pdf") {
+      previewZoom -= 0.25;
+      updateZoomDisplay();
+      if (previewPdfDoc) {
+        rerenderPdf();
+      }
+    } else if (previewFileType === "image") {
+      previewZoom -= 0.25;
+      updateZoomDisplay();
+      const img = document.querySelector(".preview-content img");
+      if (img) {
+        img.style.transform = `scale(${previewZoom})`;
+      }
+    }
+  }
+}
+
+/**
+ * 旋转预览
+ */
+function rotatePreview() {
+  previewRotation = (previewRotation + 90) % 360;
+  if (previewFileType === "pdf" && previewPdfDoc) {
+    rerenderPdf();
+  } else if (previewFileType === "image") {
+    const img = document.querySelector(".preview-content img");
+    if (img) {
+      img.style.transform = `rotate(${previewRotation}deg) scale(${previewZoom})`;
+    }
+  }
+}
+
+/**
+ * 更新缩放显示
+ */
+function updateZoomDisplay() {
+  const zoomLevelEl = document.getElementById("zoomLevel");
+  if (zoomLevelEl) {
+    zoomLevelEl.textContent = `${Math.round(previewZoom * 100)}%`;
+  }
+}
+
+/**
+ * 重新渲染 PDF
+ */
+async function rerenderPdf() {
+  if (!previewPdfDoc) return;
+
+  const container = document.getElementById("pdfPageContainer");
+  if (!container) return;
+
+  container.innerHTML =
+    '<div class="preview-placeholder"><i class="ti ti-loader"></i><p>渲染中...</p></div>';
+
+  for (let pageNum = 1; pageNum <= previewPdfDoc.numPages; pageNum++) {
+    const pageDiv = document.createElement("div");
+    pageDiv.className = "pdf-page";
+    pageDiv.style.marginBottom = "16px";
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "pdf-canvas";
+    canvas.id = `pdf-page-${pageNum}`;
+    pageDiv.appendChild(canvas);
+    container.appendChild(pageDiv);
+
+    const page = await previewPdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({
+      scale: previewZoom,
+      rotation: previewRotation,
+    });
+
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    await page.render({
+      canvasContext: canvas.getContext("2d"),
+      viewport: viewport,
+    }).promise;
+  }
+}
+
+/**
+ * 隐藏预览模态框
+ */
+function hidePreviewModal() {
+  // 取消正在进行的下载
+  if (previewXhr) {
+    previewXhr.abort();
+    previewXhr = null;
+  }
+
+  document.getElementById("previewModal").style.display = "none";
+  document.getElementById("previewContent").innerHTML = "";
+  previewPdfDoc = null;
+  previewZoom = 1;
+  previewRotation = 0;
+}
+
+/**
+ * 从预览下载
+ */
 function downloadFromPreview() {
   if (previewFilePath) {
     downloadFile(previewFilePath);
   }
 }
 
-// 下载文件
+/**
+ * 下载文件
+ * @param {string} path - 路径
+ */
 async function downloadFile(path) {
+  const url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
+  window.open(url, "_blank");
+  showToast("下载已开始", "success");
+}
+
+/**
+ * 复制分享链接（直链）
+ * @param {string} path - 路径
+ */
+async function copyShareUrl(path) {
   try {
-    // 使用公开下载接口
-    const url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
-    window.open(url, "_blank");
-    showToast("下载已开始", "success");
+    // 先获取解析后的直链
+    const response = await fetch(
+      `${API_BASE}/download?path=${encodeURIComponent(path)}`,
+    );
+    const result = await response.json();
+
+    let url;
+    if (result.code === 200 && result.data && result.data.download_url) {
+      // 使用解析后的直链
+      url = result.data.download_url;
+    } else {
+      // 降级方案：使用公开访问链接
+      url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
+    }
+
+    const success = await copyToClipboard(url);
+    if (success) {
+      showToast("分享链接已复制到剪贴板", "success");
+    } else {
+      showToast("复制失败", "error");
+    }
   } catch (error) {
-    showToast("网络错误：" + error.message, "error");
+    showToast("获取链接失败：" + error.message, "error");
   }
+  hideContextMenu();
 }
 
-// 辅助函数
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
+/**
+ * 显示右键菜单
+ * @param {Event} event - 事件
+ * @param {string} path - 路径
+ * @param {string} type - 类型
+ */
+function showContextMenu(event, path, type) {
+  event.preventDefault();
+  event.stopPropagation();
+  contextMenuTarget = { path, type };
+
+  const menu = document.getElementById("contextMenu");
+  const actions =
+    type === "dir"
+      ? `
+        <div class="context-menu-item" onclick="enterFolder('${escapeHtml(path)}')">
+            <i class="ti ti-folder-open"></i> 打开
+        </div>
+      `
+      : `
+        <div class="context-menu-item" onclick="previewFile('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
+            <i class="ti ti-eye"></i> 预览
+        </div>
+        <div class="context-menu-item" onclick="downloadFile('${escapeHtml(path)}')">
+            <i class="ti ti-download"></i> 下载
+        </div>
+        <div class="context-menu-item" onclick="copyShareUrl('${escapeHtml(path)}')">
+            <i class="ti ti-link"></i> 复制分享链接
+        </div>
+      `;
+
+  menu.innerHTML = `
+    ${actions}
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" onclick="copyPath('${escapeHtml(path)}')">
+        <i class="ti ti-link"></i> 复制路径
+    </div>
+  `;
+
+  menu.style.display = "block";
+  menu.style.left = event.clientX + "px";
+  menu.style.top = event.clientY + "px";
 }
 
-function getFileIcon(name) {
-  const ext = name.split(".").pop().toLowerCase();
-  const iconMap = {
-    pdf: "ti-file-text",
-    doc: "ti-file-text",
-    docx: "ti-file-text",
-    xls: "ti-file-spreadsheet",
-    xlsx: "ti-file-spreadsheet",
-    ppt: "ti-file-presentation",
-    pptx: "ti-file-presentation",
-    jpg: "ti-file-image",
-    jpeg: "ti-file-image",
-    png: "ti-file-image",
-    gif: "ti-file-image",
-    svg: "ti-file-image",
-    webp: "ti-file-image",
-    mp3: "ti-file-music",
-    wav: "ti-file-music",
-    flac: "ti-file-music",
-    mp4: "ti-file-video",
-    avi: "ti-file-video",
-    mkv: "ti-file-video",
-    mov: "ti-file-video",
-    zip: "ti-file-zip",
-    rar: "ti-file-zip",
-    "7z": "ti-file-zip",
-    tar: "ti-file-zip",
-    gz: "ti-file-zip",
-    txt: "ti-file-text",
-    md: "ti-file-text",
-    log: "ti-file-text",
-    js: "ti-file-code",
-    ts: "ti-file-code",
-    py: "ti-file-code",
-    java: "ti-file-code",
-    cpp: "ti-file-code",
-    c: "ti-file-code",
-    go: "ti-file-code",
-    rs: "ti-file-code",
-    html: "ti-file-code",
-    css: "ti-file-code",
-    json: "ti-file-code",
-    xml: "ti-file-code",
-    yaml: "ti-file-code",
-    yml: "ti-file-code",
-  };
-  const icon = iconMap[ext] || "ti-file";
-  return `<i class="ti ${icon}"></i>`;
-}
+/**
+ * 为文件显示右键菜单
+ * @param {string} path - 路径
+ * @param {string} type - 类型
+ */
+function showContextMenuForFile(path, type) {
+  const menu = document.getElementById("contextMenu");
+  menu.style.display = "none";
+  contextMenuTarget = { path, type };
 
-function formatSize(bytes) {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-
-function formatDate(dateStr) {
-  try {
-    return new Date(dateStr).toLocaleDateString("zh-CN");
-  } catch {
-    return dateStr;
-  }
-}
-
-// 显示提示
-function showToast(message, type = "info") {
-  const toast = document.createElement("div");
-  toast.className = `toast ${type}`;
-  const icon =
-    type === "success"
-      ? "ti ti-check"
-      : type === "error"
-        ? "ti ti-alert-circle"
-        : "ti ti-info-circle";
-  toast.innerHTML = `<i class="${icon}"></i><span>${message}</span>`;
-  document.body.appendChild(toast);
-
+  const rect = event.target.getBoundingClientRect();
   setTimeout(() => {
-    toast.remove();
-  }, 3000);
+    menu.style.display = "block";
+    menu.style.left = rect.left + "px";
+    menu.style.top = rect.bottom + 8 + "px";
+  }, 0);
 }
 
-// 回车键处理
+/**
+ * 隐藏右键菜单
+ */
+function hideContextMenu() {
+  document.getElementById("contextMenu").style.display = "none";
+}
+
+/**
+ * 复制路径
+ * @param {string} path - 路径
+ */
+async function copyPath(path) {
+  const success = await copyToClipboard(path);
+  if (success) {
+    showToast("路径已复制到剪贴板", "success");
+  } else {
+    showToast("复制失败", "error");
+  }
+  hideContextMenu();
+}
+
+// ==================== 键盘事件 ====================
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     hidePreviewModal();
+    hideContextMenu();
   }
 });

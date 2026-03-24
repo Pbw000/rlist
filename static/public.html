@@ -36,13 +36,16 @@
                             type="text"
                             id="searchInput"
                             placeholder="搜索文件..."
-                            oninput="handleSearch(this.value)"
                         />
                     </div>
-                    <div class="theme-toggle" onclick="toggleTheme()" title="切换主题">
+                    <div
+                        class="theme-toggle"
+                        onclick="toggleTheme()"
+                        title="切换主题"
+                    >
                         <i class="ti ti-moon" id="themeIcon"></i>
                     </div>
-                    <a href="/" class="btn btn-secondary">
+                    <a href="/index.html" class="btn btn-secondary">
                         <i class="ti ti-login"></i> 登录
                     </a>
                 </div>
@@ -83,7 +86,8 @@
             <!-- Footer -->
             <div class="footer">
                 <p>
-                    <i class="ti ti-folder-open"></i> 公开访问模式 - 仅支持浏览和下载
+                    <i class="ti ti-folder-open"></i> 公开访问模式 -
+                    仅支持浏览和下载
                 </p>
             </div>
         </div>
@@ -91,26 +95,82 @@
         <!-- Preview Modal -->
         <div class="modal-overlay" id="previewModal" style="display: none">
             <div class="modal preview-modal">
-                <h2><i class="ti ti-eye"></i> 文件预览</h2>
-                <div class="preview-content" id="previewContent"></div>
-                <div class="modal-actions">
-                    <button
-                        class="btn btn-secondary"
-                        onclick="hidePreviewModal()"
-                    >
-                        关闭
-                    </button>
-                    <button
-                        class="btn btn-primary"
-                        id="previewDownloadBtn"
-                        onclick="downloadFromPreview()"
-                    >
-                        下载
-                    </button>
+                <div class="preview-header">
+                    <h2>
+                        <i class="ti ti-eye"></i>
+                        <span id="previewFileName">文件预览</span>
+                    </h2>
+                    <div class="preview-controls">
+                        <button
+                            class="preview-control-btn"
+                            onclick="zoomOut()"
+                            title="缩小"
+                        >
+                            <i class="ti ti-minus"></i>
+                        </button>
+                        <span id="zoomLevel">100%</span>
+                        <button
+                            class="preview-control-btn"
+                            onclick="zoomIn()"
+                            title="放大"
+                        >
+                            <i class="ti ti-plus"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="rotatePreview()"
+                            title="旋转"
+                        >
+                            <i class="ti ti-rotate"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="downloadFromPreview()"
+                            title="下载"
+                        >
+                            <i class="ti ti-download"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="hidePreviewModal()"
+                            title="关闭"
+                        >
+                            <i class="ti ti-x"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="preview-content" id="previewContent">
+                    <div class="preview-placeholder">
+                        <i class="ti ti-file"></i>
+                        <p>加载中...</p>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <script src="/js/public.js?v=20240323001"></script>
+        <!-- Context Menu -->
+        <div class="context-menu" id="contextMenu" style="display: none"></div>
+
+        <!-- JS 模块 -->
+        <script
+            src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
+            async
+        ></script>
+        <script>
+            // 配置 PDF.js worker
+            if (typeof pdfjsLib !== "undefined") {
+                pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+            }
+            // 后台预加载 PDF.js
+            window.addEventListener("load", () => {
+                // 预加载 PDF.js worker
+                if (typeof pdfjsLib !== "undefined") {
+                    console.log("PDF.js 已加载");
+                }
+            });
+        </script>
+        <script src="/js/utils.js?v=20240323004"></script>
+        <script src="/js/public.js?v=20240323004"></script>
     </body>
 </html>

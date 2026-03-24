@@ -33,6 +33,15 @@
     margin-top: 8px;
 }
 
+/* 文件列表头（公开页面不需要选择框列） */
+.file-list-header {
+    grid-template-columns: 1fr 150px 120px 100px;
+}
+
+.file-item {
+    grid-template-columns: 1fr 150px 120px 100px;
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
     .header {
@@ -65,5 +74,17 @@
     .file-size,
     .file-date {
         font-size: 12px;
+    }
+
+    .header-right {
+        gap: 8px;
+    }
+
+    .search-box {
+        min-width: 150px;
+    }
+
+    .search-box input {
+        font-size: 13px;
     }
 }
