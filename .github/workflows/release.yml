@@ -75,25 +75,8 @@ jobs:
           name: rlist-x86_64-pc-windows-msvc
           path: target/release/rlist.exe
 
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rlist-aarch64-apple-darwin
-          path: target/release/rlist
-
   release:
-    needs: [build-linux-gnu, build-linux-musl, build-windows, build-macos]
+    needs: [build-linux-gnu, build-linux-musl, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,11 +86,14 @@ jobs:
         with:
           pattern: rlist-*
           merge-multiple: true
-          path: artifacts/
+          path: ${{ github.workspace }}/artifacts
+
+      - name: List artifacts
+        run: ls -la ${{ github.workspace }}/artifacts
 
       - name: Create release archives
+        working-directory: ${{ github.workspace }}/artifacts
         run: |
-          cd artifacts
           for dir in rlist-*; do
             target=$(echo $dir | sed 's/rlist-//')
             if [[ $target == *"windows"* ]]; then
@@ -117,10 +103,13 @@ jobs:
             fi
           done
 
+      - name: List archives
+        run: ls -la ${{ github.workspace }}/artifacts
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/rlist-*
+          files: ${{ github.workspace }}/artifacts/rlist-*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
