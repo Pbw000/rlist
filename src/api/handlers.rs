@@ -5,10 +5,28 @@ use axum::{
     extract::{Path, Query, State},
     response::{IntoResponse, Response},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::storage::model::{Meta, Storage};
 use crate::{api::state::AppState, storage::model::UploadInfoParams};
+
+/// 反序列化 u64，支持字符串或数字格式
+fn deserialize_u64_from_str_or_num<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNum<T> {
+        String(String),
+        Num(T),
+    }
+    match StringOrNum::deserialize(deserializer)? {
+        StringOrNum::String(s) => s.parse::<u64>().map_err(Error::custom),
+        StringOrNum::Num(n) => Ok(n),
+    }
+}
 
 /// 列出文件和目录请求参数
 #[derive(Debug, Deserialize)]
@@ -486,6 +504,13 @@ pub struct StorageInfo {
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub salt: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub nonce: u64,
+    pub claim: String,
 }
 
 /// 登录请求
@@ -493,6 +518,13 @@ pub struct RegisterRequest {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub salt: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub nonce: u64,
+    pub claim: String,
 }
 
 /// 登录响应
@@ -513,6 +545,25 @@ pub async fn register(
     State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
 ) -> ApiResponse<RegisterResponse> {
+    let challenge = &state.inner.challenge;
+
+    // 验证时间戳
+    if let Err(err) = challenge.validate_timestamp(payload.timestamp) {
+        return ApiResponse::error(400, format!("时间戳无效：{}", err));
+    }
+
+    // 验证 challenge (payload = timestamp + username + password + nonce)
+    let challenge_payload = format!(
+        "{}{}{}{}",
+        payload.timestamp, payload.username, payload.password, payload.nonce
+    );
+    if let Err(_) = challenge
+        .validate(payload.salt, &payload.claim, &challenge_payload)
+        .await
+    {
+        return ApiResponse::error(400, "Challenge 验证失败".to_string());
+    }
+
     match state
         .inner
         .auth_config
@@ -532,6 +583,25 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> ApiResponse<LoginResponse> {
+    let challenge = &state.inner.challenge;
+
+    // 验证时间戳
+    if let Err(err) = challenge.validate_timestamp(payload.timestamp) {
+        return ApiResponse::error(400, format!("时间戳无效：{}", err));
+    }
+
+    // 验证 challenge (payload = timestamp + username + password + nonce)
+    let challenge_payload = format!(
+        "{}{}{}{}",
+        payload.timestamp, payload.username, payload.password, payload.nonce
+    );
+    if let Err(_) = challenge
+        .validate(payload.salt, &payload.claim, &challenge_payload)
+        .await
+    {
+        return ApiResponse::error(400, "Challenge 验证失败".to_string());
+    }
+
     match state
         .inner
         .auth_config
@@ -549,6 +619,19 @@ pub async fn get_current_user() -> ApiResponse<serde_json::Value> {
     ApiResponse::success(serde_json::json!({
         "message": "已认证"
     }))
+}
+
+/// Challenge 响应
+#[derive(Debug, Serialize)]
+pub struct ChallengeResponse {
+    pub salt: u64,
+}
+
+/// 获取 Challenge
+#[axum::debug_handler]
+pub async fn get_challenge(State(state): State<AppState>) -> ApiResponse<ChallengeResponse> {
+    let salt_value = state.inner.challenge.challenge.get_current_salt();
+    ApiResponse::success(ChallengeResponse { salt: salt_value })
 }
 
 pub async fn public_list_files(

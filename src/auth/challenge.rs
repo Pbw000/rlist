@@ -45,7 +45,7 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
         }
         Ok(())
     }
-    /// 验证 challenge（payload 格式：timestamp + username + password）
+    /// 验证 challenge（payload 格式：timestamp + username + password + nonce）
     pub async fn validate<T: Into<String>>(
         &self,
         salt: u64,
@@ -53,16 +53,17 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
         payload: T,
     ) -> Result<(), ChallengeError> {
         if claim.len() < DIFFICUITY + 1 {
+            eprintln!("Validation failed: claim length too short");
             return Err(ChallengeError::ValidationFailed);
         }
-        dbg!(&claim);
         if !claim[..DIFFICUITY].chars().all(|c| c == '0') {
+            eprintln!("Validation failed: claim prefix not all zeros");
             return Err(ChallengeError::ValidationFailed);
         }
-        let salt_lock = self
-            .challenge
-            .get_salt(salt)
-            .ok_or(ChallengeError::InvalidSalt)?;
+        let salt_lock = self.challenge.get_salt(salt).ok_or_else(|| {
+            eprintln!("Invalid salt value: {}", salt);
+            ChallengeError::InvalidSalt
+        })?;
         let mut hasher = ChecksumHasher::new();
         let payload_str = payload.into();
         {
@@ -72,6 +73,7 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
         hasher.update(payload_str.as_bytes());
         let result = hasher.finish_hex();
         if result.as_str() != claim {
+            eprintln!("Validation failed: hash result doesn't match claim");
             return Err(ChallengeError::ValidationFailed);
         }
 

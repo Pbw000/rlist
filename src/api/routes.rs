@@ -9,7 +9,6 @@ use crate::api::handlers;
 use crate::api::middleware::admin_auth_middleware;
 use crate::api::state::AppState;
 use crate::auth::auth::Permission;
-use crate::auth::handlers as auth_handlers;
 use crate::auth::middleware::{AuthMiddlewareState, auth_permission_middleware};
 
 /// 创建 API 路由（不绑定状态）
@@ -18,7 +17,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
     let public_auth_routes = Router::new()
         .route("/register", post(handlers::register))
         .route("/login", post(handlers::login))
-        .route("/challenge", get(auth_handlers::get_challenge));
+        .route("/challenge", get(handlers::get_challenge));
 
     // 需要认证的认证路由
     let protected_auth_routes = Router::new()

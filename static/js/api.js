@@ -45,9 +45,21 @@ async function getChallenge() {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const result = await response.json();
+    // 手动解析 JSON，避免大整数精度丢失
+    const text = await response.text();
+    // 用正则提取 salt 的原始字符串值
+    const saltMatch = text.match(/"salt"\s*:\s*(\d+)/);
+    if (!saltMatch) {
+      return {
+        success: false,
+        message: "获取 Challenge 失败：无法解析 salt",
+      };
+    }
+    const salt = BigInt(saltMatch[1]);
+
+    const result = JSON.parse(text);
     if (result.code === 200 && result.data) {
-      return { success: true, salt: result.data.salt };
+      return { success: true, salt: salt };
     } else {
       return {
         success: false,
@@ -64,16 +76,59 @@ async function getChallenge() {
 
 /**
  * 计算 Challenge Proof
- * @param {number} salt - Salt 值
+ * @param {bigint} salt - Salt 值
  * @param {number} timestamp - 时间戳（秒）
  * @param {string} username - 用户名
  * @param {string} password - 密码
+ * @param {number} nonce - 随机数
  * @returns {Promise<string>} - Challenge claim
  */
-async function calculateChallengeProof(salt, timestamp, username, password) {
+async function calculateChallengeProof(
+  salt,
+  timestamp,
+  username,
+  password,
+  nonce,
+) {
   const saltHex = salt.toString(16);
-  const payload = `${timestamp}${username}${password}`;
+  const payload = `${timestamp}${username}${password}${nonce}`;
   return await sha256(saltHex + payload);
+}
+
+/**
+ * 寻找满足难度要求的 nonce
+ * @param {bigint} salt - Salt 值
+ * @param {number} timestamp - 时间戳
+ * @param {string} username - 用户名
+ * @param {string} password - 密码
+ * @param {number} difficulty - 难度（前导 0 数量）
+ * @returns {Promise<{nonce: number, claim: string}>}
+ */
+async function findValidNonce(
+  salt,
+  timestamp,
+  username,
+  password,
+  difficulty = 4,
+) {
+  let nonce = 0;
+  while (true) {
+    const claim = await calculateChallengeProof(
+      salt,
+      timestamp,
+      username,
+      password,
+      nonce,
+    );
+    if (claim.startsWith("0".repeat(difficulty))) {
+      return { nonce, claim };
+    }
+    nonce++;
+    // 每 10000 次让出主线程
+    if (nonce % 10000 === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
 }
 
 /**
@@ -217,18 +272,26 @@ async function login(username, password) {
     // 获取当前时间戳（秒）
     const timestamp = Math.floor(Date.now() / 1000);
 
-    // 计算 challenge proof
-    const claim = await calculateChallengeProof(
+    // 寻找满足难度要求的 nonce
+    const { nonce, claim } = await findValidNonce(
       salt,
       timestamp,
       username,
       password,
+      4,
     );
 
     const response = await fetch(`${API_BASE}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, salt, timestamp, claim }),
+      body: JSON.stringify({
+        username,
+        password,
+        salt: salt.toString(),
+        timestamp,
+        nonce,
+        claim,
+      }),
     });
 
     if (!response.ok) {
@@ -269,18 +332,26 @@ async function register(username, password) {
     // 获取当前时间戳（秒）
     const timestamp = Math.floor(Date.now() / 1000);
 
-    // 计算 challenge proof
-    const claim = await calculateChallengeProof(
+    // 寻找满足难度要求的 nonce
+    const { nonce, claim } = await findValidNonce(
       salt,
       timestamp,
       username,
       password,
+      4,
     );
 
     const response = await fetch(`${API_BASE}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, salt, timestamp, claim }),
+      body: JSON.stringify({
+        username,
+        password,
+        salt: salt.toString(),
+        timestamp,
+        nonce,
+        claim,
+      }),
     });
 
     const result = await response.json();
