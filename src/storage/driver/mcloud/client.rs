@@ -1,4 +1,6 @@
-//! 中国移动云盘 API 客户端
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use crate::storage::driver::mcloud::config::McloudConfig;

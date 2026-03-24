@@ -7,27 +7,16 @@ use chrono::{DateTime, Utc};
 use rand::{Rng, RngExt};
 use sha2::{Digest, Sha512};
 use sqlx::SqlitePool;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs::File;
 use tracing::{error, warn};
 
-/// Salt 长度（字节）
 const SALT_LENGTH: usize = 32;
-
-/// 最大失败尝试次数
 const MAX_FAIL_COUNT: u32 = 5;
-
-/// 账户封禁时长（10 分钟）
 const BAN_DURATION: Duration = Duration::from_secs(600);
-
-/// 最小密码长度
 const MIN_PASSWORD_LENGTH: usize = 8;
-
-/// 最大用户名长度
 const MAX_USERNAME_LENGTH: usize = 64;
 
-/// 用户权限标志位
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UserPermissions {
     pub read: bool,
@@ -125,7 +114,7 @@ pub struct UserCredentials {
 /// 用户凭证存储
 #[derive(Clone)]
 pub struct UserCredentialsStore {
-    pool: Arc<SqlitePool>,
+    pool: SqlitePool,
 }
 
 impl UserCredentialsStore {
@@ -152,9 +141,7 @@ impl UserCredentialsStore {
         .execute(&pool)
         .await?;
 
-        Ok(UserCredentialsStore {
-            pool: Arc::new(pool),
-        })
+        Ok(UserCredentialsStore { pool })
     }
 
     /// 注册用户凭证
@@ -184,7 +171,7 @@ impl UserCredentialsStore {
         let exists: Option<(i32,)> =
             sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")
                 .bind(&username)
-                .fetch_optional(&*self.pool)
+                .fetch_optional(&self.pool)
                 .await
                 .map_err(|e| {
                     error!("注册时数据库错误：{}", e);
@@ -213,7 +200,7 @@ impl UserCredentialsStore {
         .bind(&salt.as_slice())
         .bind(&password_hash)
         .bind(&permissions.to_bits())
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await
         .map_err(|e| {
             error!("注册用户凭证时数据库错误：{}", e);
@@ -237,7 +224,7 @@ impl UserCredentialsStore {
             "SELECT salt, password_hash, permissions, fail_count, ban_exp FROM user_credentials WHERE username = ?",
         )
         .bind(username)
-        .fetch_optional(&*self.pool)
+        .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
             error!("认证时数据库错误：{}", e);
@@ -272,7 +259,7 @@ impl UserCredentialsStore {
                     "UPDATE user_credentials SET fail_count = 0, ban_exp = NULL WHERE username = ?",
                 )
                 .bind(username)
-                .execute(&*self.pool)
+                .execute(&self.pool)
                 .await
                 .map_err(|e| {
                     error!("重置封禁状态时数据库错误：{}", e);
@@ -306,7 +293,7 @@ impl UserCredentialsStore {
                 .bind(new_fail_count)
                 .bind(ban_exp_time)
                 .bind(username)
-                .execute(&*self.pool)
+                .execute(&self.pool)
                 .await
                 .map_err(|e| {
                     error!("封禁用户 '{}' 时数据库错误：{}", username, e);
@@ -325,7 +312,7 @@ impl UserCredentialsStore {
                 sqlx::query("UPDATE user_credentials SET fail_count = ? WHERE username = ?")
                     .bind(new_fail_count)
                     .bind(username)
-                    .execute(&*self.pool)
+                    .execute(&self.pool)
                     .await
                     .map_err(|e| {
                         error!("更新失败计数时数据库错误：{}", e);
@@ -345,7 +332,7 @@ impl UserCredentialsStore {
         )
         .bind(0)
         .bind(username)
-        .execute(&*self.pool)
+        .execute(&self.pool)
         .await
         .map_err(|e| {
             error!("重置失败计数时数据库错误：{}", e);
@@ -367,7 +354,7 @@ impl UserCredentialsStore {
         sqlx::query("UPDATE user_credentials SET permissions = ? WHERE username = ?")
             .bind(&permissions.to_bits())
             .bind(username)
-            .execute(&*self.pool)
+            .execute(&self.pool)
             .await
             .map_err(|e| {
                 error!("更新用户 '{}' 权限时数据库错误：{}", username, e);
@@ -384,7 +371,7 @@ impl UserCredentialsStore {
         let result: Option<(i32,)> =
             sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")
                 .bind(username)
-                .fetch_optional(&*self.pool)
+                .fetch_optional(&self.pool)
                 .await
                 .ok()
                 .flatten();
@@ -395,7 +382,7 @@ impl UserCredentialsStore {
     pub async fn remove(&self, username: &str) -> bool {
         let result = sqlx::query("DELETE FROM user_credentials WHERE username = ?")
             .bind(username)
-            .execute(&*self.pool)
+            .execute(&self.pool)
             .await;
 
         match result {
@@ -406,7 +393,7 @@ impl UserCredentialsStore {
 
     pub async fn list_usernames(&self) -> Result<Vec<String>, sqlx::Error> {
         let usernames = sqlx::query_scalar("SELECT username FROM user_credentials")
-            .fetch_all(&*self.pool)
+            .fetch_all(&self.pool)
             .await?;
         Ok(usernames)
     }
@@ -419,7 +406,7 @@ impl UserCredentialsStore {
         let result: Option<(u8,)> =
             sqlx::query_as("SELECT permissions FROM user_credentials WHERE username = ?")
                 .bind(username)
-                .fetch_optional(&*self.pool)
+                .fetch_optional(&self.pool)
                 .await
                 .map_err(|e| {
                     error!("获取用户 '{}' 权限时数据库错误：{}", username, e);
