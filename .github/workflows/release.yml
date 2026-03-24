@@ -26,7 +26,7 @@ jobs:
           target: x86_64-unknown-linux-gnu
 
       - name: Build
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+        run: cargo build --release --bin rlist --target x86_64-unknown-linux-gnu
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -37,13 +37,13 @@ jobs:
 
   build-linux-musl:
     runs-on: ubuntu-latest
+    container: rust:alpine
     steps:
       - uses: actions/checkout@v4
 
       - name: Install musl tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-dev musl-tools
+          apk add --no-cache musl-dev
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -51,7 +51,7 @@ jobs:
           target: x86_64-unknown-linux-musl
 
       - name: Build
-        run: cargo build --release --target x86_64-unknown-linux-musl
+        run: cargo build --release --bin rlist --target x86_64-unknown-linux-musl
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -69,7 +69,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --bin rlist
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -92,21 +92,18 @@ jobs:
           path: artifacts
 
       - name: List downloaded artifacts
-        run: ls -R artifacts
+        run: ls -la artifacts
 
       - name: Create release archives
         run: |
           cd artifacts
-          for file in rlist-*; do
-            if [ -f "$file" ]; then
-              target=$(basename "$file")
-              if [[ $target == *.exe ]]; then
-                zip -r rlist-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip $file
-              elif [[ $target == *musl* ]]; then
-                tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz $file
-              elif [[ $target == *gnu* ]]; then
-                tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz $file
-              fi
+          for file in *; do
+            if [[ $file == *.exe ]]; then
+              zip -r rlist-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip $file
+            elif [[ $file == *musl* ]]; then
+              tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz $file
+            else
+              tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz $file
             fi
           done
 
