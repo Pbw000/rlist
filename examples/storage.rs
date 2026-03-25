@@ -1,3 +1,4 @@
+use rlist::LocalStorage;
 use rlist::storage::all::StorageRegistry;
 use rlist::storage::driver::mcloud::client::McloudStorage;
 use rlist::storage::model::Storage;
@@ -14,6 +15,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fused.build_cache("/").await?;
     println!("Cache build success!");
     let result = fused.get_download_meta_by_path(folder_path).await;
+    println!("Result:{:?}", result);
+    let local_storage = LocalStorage::new(r"C:\Users\pang_\Downloads");
+    fused.add_driver(local_storage, "/local");
+
+    // 复制到已存在的目录
+    let result = fused.copy_relay(folder_path, "/local/ddd.apk").await;
     println!("Result:{:?}", result);
     Ok(())
 }

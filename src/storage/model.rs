@@ -50,6 +50,7 @@ impl FileList {
 /// 文件内容读取器 trait
 pub trait FileContent: AsyncRead + AsyncSeek + Send + Sync + Unpin {
     fn size(&self) -> Option<u64>;
+    fn hash(&self) -> &str;
 }
 
 /// 上传模式
@@ -203,6 +204,59 @@ pub trait Storage: Send + Sync {
         content: R,
         param: UploadInfoParams,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
+    fn copy_relay(
+        &self,
+        source_path: &str,
+        dest_path: &str,
+    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send
+    where
+        Self: Sized,
+    {
+        async move {
+            // 获取源文件元数据
+            let source_meta = self.get_meta(source_path).await?;
+
+            // 获取源文件大小
+            let source_size = match &source_meta {
+                Meta::File { size, .. } => *size,
+                Meta::Directory { .. } => {
+                    return Err(Self::Error::from("Cannot copy directory".to_string()));
+                }
+            };
+
+            // 下载源文件内容（流式）
+            let content = self.download_file(source_path).await?;
+
+            // 获取 hash
+            let hash = content.hash().to_string();
+
+            // 构建上传参数
+            let upload_param = UploadInfoParams {
+                path: dest_path.to_string(),
+                size: source_size,
+                hash,
+            };
+
+            self.upload_file(dest_path, content, upload_param).await
+        }
+    }
+
+    fn move_file(
+        &self,
+        source_path: &str,
+        dest_path: &str,
+    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send
+    where
+        Self: Sized,
+    {
+        async move {
+            let meta = self.copy_relay(source_path, dest_path).await?;
+
+            self.delete(source_path).await?;
+
+            Ok(meta)
+        }
+    }
 
     /// 从认证数据创建实例
     fn from_auth_data(json: &str) -> Result<Self, Self::Error>

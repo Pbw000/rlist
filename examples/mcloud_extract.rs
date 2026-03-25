@@ -10,6 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let folder_path = "/系统桌面_RELEASE-5.39.31.10165-11112057.apk";
     storage.build_cache("/").await?;
     println!("Cache build success!");
+
     let result = storage.get_download_meta_by_path(folder_path).await;
     println!("Result:{:?}", result);
     Ok(())

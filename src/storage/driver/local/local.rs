@@ -16,30 +16,32 @@ impl LocalStorage {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
-
     fn normalize_path(&self, path: &str) -> Result<PathBuf, StorageError> {
-        let path = path.trim_start_matches('/');
-        let full_path = self.root.join(path);
-        // dbg!(&full_path);
+        let trimmed_path = path.trim_start_matches('/');
+        let full_path = self.root.join(trimmed_path);
 
         let canonical_root = self
             .root
             .canonicalize()
             .map_err(|e| StorageError::NotFound(e.to_string()))?;
-        // dbg!(&canonical_root);
 
-        let canonical_path = full_path
-            .canonicalize()
-            .unwrap_or_else(|_| full_path.clone());
-        // dbg!(&canonical_path);
-
-        if !canonical_path.starts_with(&canonical_root) {
-            return Err(StorageError::NotFound("路径遍历被阻止".to_string()));
-        }
-
+        let canonical_path = if full_path.exists() {
+            let path = full_path
+                .canonicalize()
+                .map_err(|e| StorageError::NotFound(e.to_string()))?;
+            path
+        } else {
+            if let Some(parent) = full_path.parent().filter(|p| p.exists()) {
+                if let Ok(canonical_parent) = parent.canonicalize() {
+                    if !canonical_parent.starts_with(&canonical_root) {
+                        return Err(StorageError::NotFound("路径遍历被阻止".to_string()));
+                    }
+                }
+            }
+            full_path
+        };
         Ok(canonical_path)
     }
-
     fn meta_from_path(&self, path: &PathBuf) -> Result<FileMeta, StorageError> {
         use chrono::DateTime;
 
@@ -70,11 +72,12 @@ impl LocalStorage {
 pub struct LocalFileReader {
     file: File,
     size: Option<u64>,
+    hash: String,
 }
 
 impl LocalFileReader {
-    pub fn new(file: File, size: Option<u64>) -> Self {
-        Self { file, size }
+    pub fn new(file: File, size: Option<u64>, hash: String) -> Self {
+        Self { file, size, hash }
     }
 }
 
@@ -104,6 +107,10 @@ impl AsyncSeek for LocalFileReader {
 impl FileContent for LocalFileReader {
     fn size(&self) -> Option<u64> {
         self.size
+    }
+
+    fn hash(&self) -> &str {
+        &self.hash
     }
 }
 
@@ -216,11 +223,17 @@ impl Storage for LocalStorage {
             let metadata = std::fs::metadata(&normalized)
                 .map_err(|e| StorageError::NotFound(e.to_string()))?;
 
+            // 获取文件 hash
+            let download_meta = self.get_download_meta_by_path(path).await?;
+
             let file = File::open(&normalized)
                 .await
                 .map_err(|e| StorageError::NotFound(e.to_string()))?;
-            let reader: Box<dyn FileContent> =
-                Box::new(LocalFileReader::new(file, Some(metadata.len())));
+            let reader: Box<dyn FileContent> = Box::new(LocalFileReader::new(
+                file,
+                Some(metadata.len()),
+                download_meta.hash,
+            ));
             Ok(reader)
         }
     }

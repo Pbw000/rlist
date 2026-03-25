@@ -11,3 +11,4 @@ pub mod file_meta;
 pub mod fused_storage;
 mod radix_tree;
 pub use fused_storage::fused::FusedStorage;
+pub mod url_reader;

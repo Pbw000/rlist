@@ -9,13 +9,10 @@ use crate::storage::driver::mcloud::types::*;
 use crate::storage::file_meta::DownloadableMeta;
 use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
 use crate::storage::radix_tree::RadixTree;
+use crate::storage::url_reader::UrlReader;
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::io::SeekFrom;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::sync::RwLock;
 
 /// API 端点
@@ -189,12 +186,7 @@ impl Storage for McloudStorage {
         }
     }
     async fn get_meta(&self, path: &str) -> Result<FileMeta, Self::Error> {
-        let file_id = self
-            .get_file_id_by_path(path)
-            .await
-            .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
-
-        let meta = self.get_file_meta_by_path(&file_id).await?;
+        let meta = self.get_file_meta_by_path(&path).await?;
         Ok(meta.to_meta())
     }
 
@@ -211,19 +203,12 @@ impl Storage for McloudStorage {
         path: &str,
     ) -> impl Future<Output = Result<Box<dyn FileContent>, Self::Error>> + Send {
         async move {
-            let file_id = if let Some(id) = self.get_file_id_by_path(path).await {
-                id
-            } else if path == "/" || path.is_empty() {
-                "root".to_string()
-            } else {
-                return Err(McloudError::NotFound("File not found!".into()));
-            };
-            let meta = self.get_download_meta_by_path(&file_id).await?;
-            let reader: Box<dyn FileContent> = Box::new(McloudFileReader::new(
-                meta.download_url,
-                Some(meta.size),
-                self.client.clone(),
-            ));
+            let meta = self.get_download_meta_by_path(&path).await?;
+            let reader = UrlReader::builder(&meta.download_url)
+                .size(meta.size)
+                .hash(&meta.hash)
+                .build();
+            let reader: Box<dyn FileContent> = Box::new(reader);
             Ok(reader)
         }
     }
@@ -264,12 +249,8 @@ impl Storage for McloudStorage {
             } else {
                 path.to_string()
             };
-
             self.delete_file(vec![file_id]).await?;
-
-            // 清除缓存
             self.remove_cache(path).await;
-
             Ok(())
         }
     }
@@ -920,15 +901,10 @@ impl McloudStorage {
         let mut cache = self.path_cache.write().await;
         cache.remove(path);
     }
-
-    /// 清除缓存
     async fn clear_cache(&self) {
         let mut cache = self.path_cache.write().await;
         cache.clear();
     }
-
-    /// 从已缓存的祖先节点开始构建缓存
-    /// `target_path` 是目标完整路径，`remainder` 是未匹配的后缀部分（如 "subdir1/subdir2"）
     async fn build_cache_from_ancestor(
         &self,
         ancestor_file_id: &str,
@@ -1182,72 +1158,4 @@ struct UploadCreateInfo {
     upload_url: String,
     part_size: u64,
     part_offset: u64,
-}
-
-use std::future::Future;
-
-/// 云盘文件内容读取器
-pub struct McloudFileReader {
-    url: String,
-    client: Arc<Client>,
-    size: Option<u64>,
-    offset: u64,
-}
-
-impl McloudFileReader {
-    pub fn new(url: String, size: Option<u64>, client: Arc<Client>) -> Self {
-        Self {
-            url,
-            client,
-            size,
-            offset: 0,
-        }
-    }
-}
-
-impl AsyncRead for McloudFileReader {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        _buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        // 简单实现，实际应该使用流式读取
-        // TODO: 实现真正的 HTTP 流式读取
-        Poll::Ready(Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "流式读取暂未实现",
-        )))
-    }
-}
-
-impl AsyncSeek for McloudFileReader {
-    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> std::io::Result<()> {
-        let this = self.get_mut();
-        let new_offset = match position {
-            SeekFrom::Start(offset) => offset,
-            SeekFrom::End(offset) => {
-                if let Some(size) = this.size {
-                    (size as i64 + offset) as u64
-                } else {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "无法从末尾 seek，文件大小未知",
-                    ));
-                }
-            }
-            SeekFrom::Current(offset) => (this.offset as i64 + offset) as u64,
-        };
-        this.offset = new_offset;
-        Ok(())
-    }
-
-    fn poll_complete(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<u64>> {
-        Poll::Ready(Ok(self.get_mut().offset))
-    }
-}
-
-impl FileContent for McloudFileReader {
-    fn size(&self) -> Option<u64> {
-        self.size
-    }
 }
