@@ -5,18 +5,18 @@ use axum::{
     routing::{delete, get, post, put},
 };
 
-use crate::api::handlers;
 use crate::api::middleware::admin_permission_middleware;
 use crate::api::state::AppState;
+use crate::api::{admin, public, user};
 use crate::auth::auth::Permission;
 use crate::auth::middleware::{AuthMiddlewareState, auth_permission_middleware};
 
 pub fn create_routes(state: AppState) -> Router<AppState> {
     let public_auth_routes = Router::new()
-        .route("/login", post(handlers::login))
-        .route("/challenge", get(handlers::get_challenge));
+        .route("/login", post(public::login))
+        .route("/challenge", get(public::get_challenge));
     let protected_auth_routes = Router::new()
-        .route("/me", get(handlers::get_current_user))
+        .route("/me", get(user::get_current_user))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -30,12 +30,12 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         // 健康检查
         .route("/health", get(|| async { "OK" }))
         // 公开存储访问端点
-        .route("/list", post(handlers::public_list_files))
-        .route("/download", get(handlers::public_download_file));
+        .route("/list", post(public::public_list_files))
+        .route("/download", get(public::public_download_file));
 
     let list_routes = Router::new()
-        .route("/fs/list", get(handlers::list_files))
-        .route("/fs/dir", get(handlers::get_file_info))
+        .route("/fs/list", get(public::list_files))
+        .route("/fs/dir", get(public::get_file_info))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -45,8 +45,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         ));
 
     let download_routes = Router::new()
-        .route("/fs/get", get(handlers::get_file))
-        .route("/fs/download", get(handlers::download_file))
+        .route("/fs/get", get(public::get_file))
+        .route("/fs/download", get(public::download_file))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -56,9 +56,9 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         ));
 
     let upload_routes = Router::new()
-        .route("/fs/upload", put(handlers::upload_file))
-        .route("/fs/upload-info", post(handlers::get_upload_info))
-        .route("/fs/upload/complete", post(handlers::complete_upload))
+        .route("/fs/upload", put(public::upload_file))
+        .route("/fs/upload-info", post(public::get_upload_info))
+        .route("/fs/upload/complete", post(public::complete_upload))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -67,18 +67,18 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             auth_permission_middleware,
         ));
 
-    let mkdir_routes = Router::new()
-        .route("/fs/mkdir", post(handlers::mkdir))
-        .layer(middleware::from_fn_with_state(
+    let mkdir_routes = Router::new().route("/fs/mkdir", post(public::mkdir)).layer(
+        middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
                 required_permission: Permission::CreateDir,
             },
             auth_permission_middleware,
-        ));
+        ),
+    );
 
     let remove_routes = Router::new()
-        .route("/fs/remove", post(handlers::remove))
+        .route("/fs/remove", post(public::remove))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -88,7 +88,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         ));
 
     let rename_routes = Router::new()
-        .route("/fs/rename", post(handlers::rename))
+        .route("/fs/rename", post(public::rename))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -97,18 +97,19 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             auth_permission_middleware,
         ));
 
-    let copy_routes = Router::new().route("/fs/copy", post(handlers::copy)).layer(
-        middleware::from_fn_with_state(
-            AuthMiddlewareState {
-                auth_config: state.inner.auth_config.clone(),
-                required_permission: Permission::Copy,
-            },
-            auth_permission_middleware,
-        ),
-    );
+    let copy_routes =
+        Router::new()
+            .route("/fs/copy", post(public::copy))
+            .layer(middleware::from_fn_with_state(
+                AuthMiddlewareState {
+                    auth_config: state.inner.auth_config.clone(),
+                    required_permission: Permission::Copy,
+                },
+                auth_permission_middleware,
+            ));
 
     let move_routes = Router::new()
-        .route("/fs/move", post(handlers::move_file))
+        .route("/fs/move", post(public::move_file))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -129,14 +130,14 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
 
     // 需要管理员权限的路由
     let admin_routes = Router::new()
-        .route("/admin/user/register", post(handlers::register))
-        .route("/admin/user/list", get(handlers::list_users))
-        .route("/admin/user/remove", post(handlers::remove_user))
-        .route("/admin/storage/list", get(handlers::list_storages))
-        .route("/admin/storage/add", post(handlers::add_storage))
+        .route("/admin/user/register", post(admin::register))
+        .route("/admin/user/list", get(admin::list_users))
+        .route("/admin/user/remove", post(admin::remove_user))
+        .route("/admin/storage/list", get(user::list_storages))
+        .route("/admin/storage/add", post(admin::add_storage))
         .route(
             "/admin/storage/delete/{name}",
-            delete(handlers::remove_storage),
+            delete(admin::remove_storage),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),
