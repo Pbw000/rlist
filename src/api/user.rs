@@ -16,17 +16,12 @@ pub async fn get_current_user() -> ApiResponse<serde_json::Value> {
 
 /// 列出所有存储
 pub async fn list_storages(State(state): State<AppState>) -> impl IntoResponse {
-    let names = state.list_storages().await;
-    let storages: Vec<StorageInfo> = names
-        .into_iter()
-        .map(|name| StorageInfo {
-            id: name.clone(),
-            name,
-            driver: "unknown".to_string(),
-            status: "work".to_string(),
-        })
-        .collect();
-
+    let pub_storage = state.list_public_storages().await;
+    let pri_storage = state.list_private_storages().await;
+    let storages = serde_json::json!({
+        "public": pub_storage,
+        "private": pri_storage,
+    });
     ApiResponse::success(storages)
 }
 

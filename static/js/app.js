@@ -275,6 +275,7 @@ function renderFiles(files) {
   if (!files || files.length === 0) {
     fileList.innerHTML =
       '<div class="empty-state"><i class="ti ti-folder-open"></i><p>此目录为空</p></div>';
+    updateDeleteButton();
     return;
   }
 
@@ -338,6 +339,7 @@ function renderFiles(files) {
       )
       .join("")}
   `;
+  updateDeleteButton();
 }
 
 /**
@@ -395,13 +397,56 @@ async function deleteSelected() {
   const count = fileManager.getSelectedCount();
   if (count === 0) return;
 
-  if (!confirm(`确定要删除选中的 ${count} 个项目吗？`)) return;
+  // 显示删除确认弹窗
+  showDeleteConfirmModal(count);
+}
 
-  const result = await fileManager.deleteSelected();
-  showToast(
-    `已删除 ${result.count}/${result.total} 个项目`,
-    result.count === result.total ? "success" : "error",
-  );
+/**
+ * 显示删除确认弹窗
+ * @param {number} count - 删除数量
+ */
+function showDeleteConfirmModal(count) {
+  const modal = document.getElementById("deleteConfirmModal");
+  const message = document.getElementById("deleteMessage");
+  message.textContent = `确定要删除选中的 ${count} 个项目吗？`;
+  modal.style.display = "flex";
+}
+
+/**
+ * 隐藏删除确认弹窗
+ */
+function hideDeleteConfirmModal() {
+  document.getElementById("deleteConfirmModal").style.display = "none";
+}
+
+/**
+ * 处理删除弹窗背景点击
+ */
+function handleDeleteModalOverlayClick(event) {
+  if (event.target === event.currentTarget) {
+    hideDeleteConfirmModal();
+  }
+}
+
+/**
+ * 确认删除
+ */
+async function confirmDelete() {
+  hideDeleteConfirmModal();
+
+  // 检查是否有回调函数
+  if (window.deleteCallback) {
+    const callback = window.deleteCallback;
+    window.deleteCallback = null;
+    await callback();
+  } else {
+    // 默认的批量删除逻辑
+    const result = await fileManager.deleteSelected();
+    showToast(
+      `已删除 ${result.count}/${result.total} 个项目`,
+      result.count === result.total ? "success" : "error",
+    );
+  }
 }
 
 // ==================== 文件夹操作 ====================
@@ -1519,15 +1564,33 @@ async function copyShareUrl(path) {
  * @param {string} path - 路径
  */
 async function deleteFile(path) {
-  if (!confirm(`确定要删除 "${path}" 吗？`)) return;
+  // 使用自定义删除确认弹窗
+  showDeleteConfirmModalWithCallback(path, async () => {
+    const result = await fileManager.remove(path);
+    if (result.success) {
+      showToast("删除成功", "success");
+    } else {
+      showToast("删除失败：" + result.message, "error");
+    }
+    hideContextMenu();
+  });
+}
 
-  const result = await fileManager.remove(path);
-  if (result.success) {
-    showToast("删除成功", "success");
-  } else {
-    showToast("删除失败：" + result.message, "error");
-  }
-  hideContextMenu();
+/**
+ * 显示删除确认弹窗（带回调）
+ * @param {string} path - 文件路径（用于显示）
+ * @param {Function} callback - 确认后的回调函数
+ */
+function showDeleteConfirmModalWithCallback(path, callback) {
+  const modal = document.getElementById("deleteConfirmModal");
+  const message = document.getElementById("deleteMessage");
+  const fileName = path.split("/").pop();
+  message.textContent = `确定要删除 "${fileName}" 吗？`;
+
+  // 保存回调函数
+  window.deleteCallback = callback;
+
+  modal.style.display = "flex";
 }
 
 // ==================== 其他功能 ====================

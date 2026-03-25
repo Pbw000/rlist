@@ -7,13 +7,11 @@ use rlist::storage::driver::local::local::LocalStorage;
 use rlist::utils::cli::{Cli, PasswdSubCommand, RlistSubcommand};
 use rlist::utils::password::generate_random_password;
 use std::sync::Arc;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
     let cli = Cli::parse();
-    let credentials_store = UserCredentialsStore::new("users.db").await?;
-
+    let credentials_store = UserCredentialsStore::new("data.db").await?;
     match cli.command {
         Some(RlistSubcommand::Passwd(command)) => {
             handle_passwd_command(&credentials_store, command).await?;
@@ -22,7 +20,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_server(port, credentials_store).await?;
         }
         None => {
-            // 没有指定命令时，默认运行服务器
             run_server(10000, credentials_store).await?;
         }
     }
@@ -63,7 +60,7 @@ async fn handle_passwd_command(
             credentials_store
                 .update_password(&user, &random_password)
                 .await
-                .map_err(|e| format!("Failed to update password: {:?}", e))?;
+                .map_err(|e| format!("Failed to update password: {:?}", e.1))?;
 
             println!("===========================================");
             println!("Random password generated:");
@@ -83,7 +80,7 @@ async fn run_server(
     credentials_store: UserCredentialsStore,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !credentials_store.exists("admin").await {
-        println!("Would you like to create an admin account? (y/n)");
+        println!("Admin account not found.\n Would you like to create an admin account? (y/n)");
         let mut input = String::new();
         std::io::stdin()
             .read_line(&mut input)
@@ -100,9 +97,7 @@ async fn run_server(
 
     let state = AppState::new(auth_config);
     let local_storage = LocalStorage::new(r"C:\Users\pang_\Downloads");
-    state
-        .add_storage("local_disk", "/local", local_storage)
-        .await;
+    state.add_storage("/local", local_storage).await;
     tracing::info!("已添加本地存储：local");
 
     use rlist::storage::driver::mcloud::McloudStorage;
@@ -112,10 +107,8 @@ async fn run_server(
     );
     let mut partial_mcloud = PartialStorage::new(storage.clone(), "/public/hieulerpi");
     partial_mcloud.read_only(true);
-    state.add_storage("mcloud_disk", "/mcloud", storage).await;
-    state
-        .add_public_storage("mcloud_disk_part", "/hieulerpi", partial_mcloud)
-        .await;
+    state.add_storage("/mcloud", storage).await;
+    state.add_public_storage("/hieulerpi", partial_mcloud).await;
 
     tracing::info!("已添加移动云盘存储：mcloud");
     state.build_cache("/").await?;

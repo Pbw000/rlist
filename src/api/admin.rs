@@ -21,14 +21,24 @@ pub async fn add_storage(
     ApiResponse::success(serde_json::json!({"message": "存储添加功能开发中"}))
 }
 
-pub async fn remove_storage(
+pub async fn remove_pub_storage(
     State(state): State<AppState>,
-    Path(name): Path<String>,
+    Path(index): Path<usize>,
 ) -> impl IntoResponse {
-    state.remove_storage(&name).await;
-    ApiResponse::success(serde_json::json!({"deleted": name}))
+    match state.remove_public_storage(index).await {
+        Some(name) => ApiResponse::success(serde_json::json!({"deleted": name})),
+        None => ApiResponse::error(404, "Storage not found".to_string()),
+    }
 }
-
+pub async fn remove_private_storage(
+    State(state): State<AppState>,
+    Path(index): Path<usize>,
+) -> impl IntoResponse {
+    match state.remove_private_storage(index).await {
+        Some(name) => ApiResponse::success(serde_json::json!({"deleted": name})),
+        None => ApiResponse::error(404, "Storage not found".to_string()),
+    }
+}
 /// 列出所有用户
 pub async fn list_users(State(state): State<AppState>) -> impl IntoResponse {
     match state

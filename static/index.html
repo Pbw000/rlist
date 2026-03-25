@@ -14,7 +14,7 @@
             rel="stylesheet"
             href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"
         />
-        <link rel="stylesheet" href="/css/style.css?v=20260325008" />
+        <link rel="stylesheet" href="/css/style.css?v=20260325009" />
     </head>
     <body>
         <!-- 登录/注册模态框 -->
@@ -205,6 +205,42 @@
                     </button>
                     <button class="btn btn-primary" onclick="confirmRename()">
                         确定
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirm Modal -->
+        <div
+            class="modal-overlay"
+            id="deleteConfirmModal"
+            style="display: none"
+            onclick="handleDeleteModalOverlayClick(event)"
+        >
+            <div class="modal delete-modal" onclick="event.stopPropagation()">
+                <div class="delete-icon">
+                    <i class="ti ti-alert-triangle"></i>
+                </div>
+                <h2>确认删除</h2>
+                <p class="delete-message" id="deleteMessage">
+                    确定要删除选中的项目吗？
+                </p>
+                <p class="delete-warning">
+                    <i class="ti ti-info-circle"></i> 此操作不可恢复
+                </p>
+                <div class="modal-actions">
+                    <button
+                        class="btn btn-secondary"
+                        onclick="hideDeleteConfirmModal()"
+                    >
+                        取消
+                    </button>
+                    <button
+                        class="btn btn-danger"
+                        onclick="confirmDelete()"
+                        id="confirmDeleteBtn"
+                    >
+                        <i class="ti ti-trash"></i> 删除
                     </button>
                 </div>
             </div>
@@ -411,10 +447,10 @@
                 }
             });
         </script>
-        <script src="/js/utils.js?v=20260325007"></script>
-        <script src="/js/api.js?v=20260325007"></script>
-        <script src="/js/file-manager.js?v=20260325007"></script>
-        <script src="/js/upload.js?v=20260325007"></script>
-        <script src="/js/app.js?v=20260325007"></script>
+        <script src="/js/utils.js?v=20260325009"></script>
+        <script src="/js/api.js?v=20260325009"></script>
+        <script src="/js/file-manager.js?v=20260325009"></script>
+        <script src="/js/upload.js?v=20260325009"></script>
+        <script src="/js/app.js?v=20260325009"></script>
     </body>
 </html>

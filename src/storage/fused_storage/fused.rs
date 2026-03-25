@@ -4,9 +4,17 @@ use crate::error::{RlistError, StorageError};
 use crate::storage::file_meta::Meta;
 use crate::storage::model::{FileContent, FileList, UploadInfoParams};
 use crate::{Storage, storage::radix_tree::RadixTree};
+
+/// 存储驱动及其前缀路径
+#[derive(Debug, PartialEq, Eq)]
+pub struct DriverWithPrefix<T> {
+    pub prefix: String,
+    pub driver: Arc<T>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct FusedStorage<T: Storage> {
-    drivers: Vec<Arc<T>>,
+    drivers: Vec<DriverWithPrefix<T>>,
     tree: RadixTree<Arc<T>>,
 }
 
@@ -20,25 +28,53 @@ impl<T: Storage> FusedStorage<T> {
 
     pub fn add_driver<U: Into<T>>(&mut self, driver: U, prefix: &str) {
         let driver = Arc::new(driver.into());
-        self.drivers.push(driver.clone());
-        self.tree.insert(prefix, driver);
+        let prefix = prefix.trim_end_matches('/').to_string();
+        self.drivers.push(DriverWithPrefix {
+            prefix: prefix.clone(),
+            driver: driver.clone(),
+        });
+        self.tree.insert(&prefix, driver);
+    }
+    pub fn remove_by_idx(&mut self, idx: usize) -> Option<Arc<T>> {
+        if idx >= self.drivers.len() {
+            return None;
+        }
+        let driver = self.drivers.remove(idx);
+        self.tree.remove(&driver.prefix)
     }
     pub fn add_driver_arc(&mut self, driver: Arc<T>, prefix: &str) {
-        self.drivers.push(driver.clone());
-        self.tree.insert(prefix, driver);
-    }
-    pub fn get_driver<'a>(&'a self, path: &'a str) -> Option<(&'a Arc<T>, &'a str)> {
-        self.tree.search(path)
+        let prefix = prefix.trim_end_matches('/').to_string();
+        self.drivers.push(DriverWithPrefix {
+            prefix: prefix.clone(),
+            driver: driver.clone(),
+        });
+        self.tree.insert(&prefix, driver);
     }
 
-    /// 获取所有已注册的驱动
-    pub fn drivers(&self) -> &[Arc<T>] {
+    pub fn remove_driver(&mut self, prefix: &str) -> Option<Arc<T>> {
+        let prefix = prefix.trim_end_matches('/');
+        let removed = self.tree.remove(prefix);
+        if let Some(idx) = self.drivers.iter().position(|d| d.prefix == prefix) {
+            self.drivers.remove(idx);
+        }
+        removed
+    }
+
+    pub fn drivers_with_prefix(&self) -> &[DriverWithPrefix<T>] {
         &self.drivers
+    }
+
+    pub fn drivers(&self) -> Vec<&Arc<T>> {
+        self.drivers.iter().map(|d| &d.driver).collect()
     }
 
     pub fn clear(&mut self) {
         self.drivers.clear();
         self.tree.clear();
+    }
+
+    pub fn get_driver<'a>(&'a self, path: &'a str) -> Option<(&'a Arc<T>, &'a str)> {
+        self.tree.search(path)
     }
 }
 
@@ -49,7 +85,6 @@ impl<T: Storage> Default for FusedStorage<T> {
 }
 
 impl<T: Storage + 'static> FusedStorage<T> {
-    /// 便捷的复制方法：从源路径复制到目标路径
     pub async fn copy(&self, src_path: &str, dest_path: &str) -> Result<(), RlistError> {
         let source_meta = self.gen_copy_meta(src_path).await?;
         self.copy_end_to_end(source_meta, dest_path).await
@@ -71,8 +106,8 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         use std::hash::Hasher;
         let hasher = std::collections::hash_map::DefaultHasher::new();
         let mut hasher = hasher;
-        for driver in &self.drivers {
-            hasher.write_u64(driver.hash());
+        for driver_with_prefix in &self.drivers {
+            hasher.write_u64(driver_with_prefix.driver.hash());
         }
         hasher.finish()
     }
@@ -119,7 +154,7 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                     let children = self.tree.search_children("/");
                     let items = children
                         .iter()
-                        .map(|driver| Meta::directory(driver.0.clone()))
+                        .map(|(prefix, _)| Meta::directory(prefix.clone()))
                         .collect::<Vec<_>>();
                     let len = items.len() as u64;
                     Ok(FileList::new(items, len))
@@ -162,8 +197,8 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         let mut joinset = tokio::task::JoinSet::new();
         let path = path.trim_end_matches('/');
         if path.is_empty() {
-            for driver in self.drivers() {
-                let driver = driver.clone();
+            for driver_with_prefix in &self.drivers {
+                let driver = driver_with_prefix.driver.clone();
                 joinset.spawn(async move { driver.build_cache("/").await });
             }
         } else {

@@ -140,8 +140,12 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .route("/admin/storage/list", get(user::list_storages))
         .route("/admin/storage/add", post(admin::add_storage))
         .route(
-            "/admin/storage/delete/{name}",
-            delete(admin::remove_storage),
+            "/admin/storage/pub/delete/{index}",
+            delete(admin::remove_pub_storage),
+        )
+        .route(
+            "/admin/storage/private/delete/{index}",
+            delete(admin::remove_private_storage),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),

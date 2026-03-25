@@ -281,23 +281,33 @@ async function loadStorages() {
 
   if (result.code === 200 && result.data) {
     const storages = result.data;
-    if (storages.length === 0) {
+    // 合并公开和私有存储
+    const allStorages = [
+      ...(storages.public || []).map((s) => ({ ...s, type: "public" })),
+      ...(storages.private || []).map((s) => ({ ...s, type: "private" })),
+    ];
+
+    if (allStorages.length === 0) {
       tbody.innerHTML =
         '<tr><td colspan="4" class="empty-cell">暂无存储</td></tr>';
       return;
     }
 
-    tbody.innerHTML = storages
+    tbody.innerHTML = allStorages
       .map(
-        (storage) => `
+        (storage, index) => `
         <tr>
           <td><strong>${escapeHtml(storage.name)}</strong></td>
-          <td>${escapeHtml(storage.driver)}</td>
-          <td><span class="storage-status work"><i class="ti ti-check"></i> 正常</span></td>
+          <td>${escapeHtml(storage.driver_name)}</td>
+          <td><code style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(storage.path)}</code></td>
+          <td>
+            <span class="storage-type-badge ${storage.type}">${storage.type === "public" ? "公开" : "私有"}</span>
+            <span class="storage-status work"><i class="ti ti-check"></i> 正常</span>
+          </td>
           <td>
             ${
               storage.name !== "default"
-                ? `<button class="action-btn-sm delete" onclick="confirmDeleteStorage('${escapeHtml(storage.name)}')" title="删除存储">
+                ? `<button class="action-btn-sm delete" onclick="confirmDeleteStorage('${escapeHtml(storage.name)}', '${storage.type}', ${index})" title="删除存储">
                     <i class="ti ti-trash"></i>
                     <span>删除</span>
                   </button>`
@@ -428,18 +438,22 @@ async function confirmEditPermissions() {
 /**
  * 确认删除存储
  * @param {string} name - 存储名称
+ * @param {string} type - 存储类型 (public/private)
+ * @param {number} index - 存储索引
  */
-async function confirmDeleteStorage(name) {
+async function confirmDeleteStorage(name, type, index) {
   if (!confirm(`确定要删除存储 "${name}" 吗？此操作不可撤销！`)) {
     return;
   }
 
-  const result = await apiRequest(
-    `/admin/storage/delete/${encodeURIComponent(name)}`,
-    {
-      method: "DELETE",
-    },
-  );
+  const endpoint =
+    type === "public"
+      ? `/admin/storage/pub/delete/${index}`
+      : `/admin/storage/private/delete/${index}`;
+
+  const result = await apiRequest(endpoint, {
+    method: "DELETE",
+  });
 
   if (result.code === 200) {
     showToast("存储删除成功", "success");

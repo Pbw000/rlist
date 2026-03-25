@@ -1,8 +1,8 @@
 //! 应用状态管理
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde::Serialize;
 use tokio::sync::RwLock;
 
 use crate::auth::auth::AuthConfig;
@@ -12,7 +12,14 @@ use crate::{
     error::RlistError,
     storage::all::{AllDriver, StorageRegistry},
 };
-
+/// 获取存储引擎列表
+#[derive(Debug, Serialize)]
+pub struct DriverInfo {
+    idx: usize,
+    driver_name: String,
+    name: String,
+    path: String,
+}
 /// 应用状态
 #[derive(Clone)]
 pub struct AppState {
@@ -22,7 +29,6 @@ pub struct AppState {
 pub struct AppStateInner {
     /// 存储引擎注册表
     pub registry: RwLock<StorageRegistry>,
-    pub storage_names: RwLock<HashMap<String, String>>,
     pub auth_config: Arc<AuthConfig>,
     pub public_registry: RwLock<StorageRegistry>,
     pub challenge: ChallengeTask<4, 300>,
@@ -36,7 +42,6 @@ impl AppState {
         Self {
             inner: Arc::new(AppStateInner {
                 registry: RwLock::new(StorageRegistry::new()),
-                storage_names: RwLock::new(HashMap::new()),
                 auth_config,
                 public_registry: RwLock::new(StorageRegistry::new()),
                 challenge,
@@ -44,52 +49,64 @@ impl AppState {
         }
     }
 
-    /// 获取存储引擎列表
-    pub async fn list_storages(&self) -> Vec<String> {
+    pub async fn list_public_storages(&self) -> Vec<DriverInfo> {
         self.inner
-            .storage_names
+            .public_registry
             .read()
             .await
-            .keys()
-            .cloned()
+            .drivers_with_prefix()
+            .iter()
+            .enumerate()
+            .map(|(idx, o)| DriverInfo {
+                idx,
+                driver_name: o.driver.driver_name().to_string(),
+                name: o.driver.name().to_string(),
+                path: o.prefix.clone(),
+            })
             .collect()
     }
-
-    /// 添加存储引擎
-    pub async fn add_storage<T, U>(&self, name: T, prefix: U, driver: impl Into<AllDriver>)
-    where
-        T: Into<String>,
-        U: Into<String>,
-    {
-        let prefix_str = prefix.into();
-        let mut registry = self.inner.registry.write().await;
-        registry.add_driver(driver, &prefix_str);
-        drop(registry);
-
+    pub async fn list_private_storages(&self) -> Vec<DriverInfo> {
         self.inner
-            .storage_names
-            .write()
+            .registry
+            .read()
             .await
-            .insert(name.into(), prefix_str);
+            .drivers_with_prefix()
+            .iter()
+            .enumerate()
+            .map(|(idx, o)| DriverInfo {
+                idx,
+                driver_name: o.driver.driver_name().to_string(),
+                name: o.driver.name().to_string(),
+                path: o.prefix.clone(),
+            })
+            .collect()
     }
-
-    /// 获取存储引擎
-    pub async fn get_storage(&self, name: &str) -> Option<String> {
-        let names = self.inner.storage_names.read().await;
-        names.get(name).cloned()
+    /// 添加存储引擎
+    pub async fn add_storage<U>(&self, prefix: U, driver: impl Into<AllDriver>)
+    where
+        U: AsRef<str>,
+    {
+        let prefix_str = prefix.as_ref();
+        let mut registry = self.inner.registry.write().await;
+        registry.add_driver(driver, prefix_str);
     }
 
     /// 移除存储引擎
-    pub async fn remove_storage(&self, name: &str) {
-        let _prefix = {
-            let mut names = self.inner.storage_names.write().await;
-            names.remove(name)
-        };
+    pub async fn remove_public_storage(&self, idx: usize) -> Option<String> {
+        self.inner
+            .public_registry
+            .write()
+            .await
+            .remove_by_idx(idx)
+            .map(|d| d.name().to_string())
     }
-
-    /// 获取所有存储引擎名称和前缀
-    pub async fn get_all_storages(&self) -> HashMap<String, String> {
-        self.inner.storage_names.read().await.clone()
+    pub async fn remove_private_storage(&self, idx: usize) -> Option<String> {
+        self.inner
+            .public_registry
+            .write()
+            .await
+            .remove_by_idx(idx)
+            .map(|d| d.name().to_string())
     }
 
     /// 获取主注册表的读守卫
@@ -122,21 +139,13 @@ impl AppState {
     }
 
     /// 添加公开存储引擎
-    pub async fn add_public_storage<T, U>(&self, name: T, prefix: U, driver: impl Into<AllDriver>)
+    pub async fn add_public_storage<U>(&self, prefix: U, driver: impl Into<AllDriver>)
     where
-        T: Into<String>,
-        U: Into<String>,
+        U: AsRef<str>,
     {
-        let prefix_str = prefix.into();
+        let prefix_str = prefix.as_ref();
         let mut registry = self.inner.public_registry.write().await;
-        registry.add_driver(driver, &prefix_str);
-        drop(registry);
-
-        self.inner
-            .storage_names
-            .write()
-            .await
-            .insert(name.into(), prefix_str);
+        registry.add_driver(driver, prefix_str);
     }
 
     /// 获取公开存储引擎注册表
