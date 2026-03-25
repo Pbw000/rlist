@@ -295,7 +295,7 @@ async function loadStorages() {
 
     tbody.innerHTML = allStorages
       .map(
-        (storage, index) => `
+        (storage) => `
         <tr>
           <td><strong>${escapeHtml(storage.name)}</strong></td>
           <td>${escapeHtml(storage.driver_name)}</td>
@@ -307,7 +307,7 @@ async function loadStorages() {
           <td>
             ${
               storage.name !== "default"
-                ? `<button class="action-btn-sm delete" onclick="confirmDeleteStorage('${escapeHtml(storage.name)}', '${storage.type}', ${index})" title="删除存储">
+                ? `<button class="action-btn-sm delete" onclick="confirmDeleteStorage('${escapeHtml(storage.name)}', '${storage.type}', ${storage.idx})" title="删除存储">
                     <i class="ti ti-trash"></i>
                     <span>删除</span>
                   </button>`

@@ -21,7 +21,7 @@ pub async fn get_upload_info(
     State(state): State<AppState>,
     Json(query): Json<UploadInfoParams>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
     let path = query.path.clone();
     match registry_guard.get_upload_info(query).await {
         Ok(info) => {
@@ -61,7 +61,7 @@ pub async fn upload_file(
 
     // 获取注册表并立即释放锁，避免长时间持有锁导致其他请求阻塞
     let result = {
-        let registry_guard = state.inner.registry.read().await;
+        let registry_guard = state.inner.private_registry.read().await;
         let param = UploadInfoParams {
             path: path.clone(),
             size,
@@ -124,7 +124,7 @@ pub async fn list_files(
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     let path = query.path.as_deref().unwrap_or("/");
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
 
     match registry_guard
         .list_files(path, query.per_page.unwrap_or(100), None)
@@ -140,7 +140,7 @@ pub async fn get_file_info(
     State(state): State<AppState>,
     Query(query): Query<FsOperation>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
 
     match registry_guard.get_meta(&query.path).await {
         Ok(meta) => ApiResponse::success(meta),
@@ -153,7 +153,7 @@ pub async fn get_file(
     State(state): State<AppState>,
     Query(query): Query<FsOperation>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
     match registry_guard.get_download_meta_by_path(&query.path).await {
         Ok(meta) => {
             // 使用存储驱动自己生成的下载 URL
@@ -186,7 +186,7 @@ pub async fn download_file(
 
     // 先获取文件元数据（短暂持有锁）
     let (file_name, size, file_content) = {
-        let registry_guard = state.inner.registry.read().await;
+        let registry_guard = state.inner.private_registry.read().await;
 
         let meta = match registry_guard.get_meta(&query.path).await {
             Ok(m) => m,
@@ -245,7 +245,7 @@ pub async fn mkdir(
     State(state): State<AppState>,
     Json(req): Json<FsOperation>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
 
     match registry_guard.create_folder(&req.path).await {
         Ok(_) => ApiResponse::success(serde_json::json!({"path": req.path})),
@@ -258,7 +258,7 @@ pub async fn remove(
     State(state): State<AppState>,
     Json(req): Json<FsOperation>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
 
     match registry_guard.delete(&req.path).await {
         Ok(_) => ApiResponse::success(serde_json::json!({"path": req.path})),
@@ -271,7 +271,7 @@ pub async fn rename(
     State(state): State<AppState>,
     Json(req): Json<RenameRequest>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
 
     match registry_guard.rename(&req.src_path, &req.new_name).await {
         Ok(_) => ApiResponse::success(
@@ -286,7 +286,7 @@ pub async fn copy(
     State(state): State<AppState>,
     Json(req): Json<MoveCopyRequest>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
 
     match registry_guard.copy(&req.src_path, &req.dst_path).await {
         Ok(_) => {
@@ -301,7 +301,7 @@ pub async fn move_file(
     State(state): State<AppState>,
     Json(req): Json<MoveCopyRequest>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.registry.read().await;
+    let registry_guard = state.inner.private_registry.read().await;
 
     match registry_guard.move_file(&req.src_path, &req.dst_path).await {
         Ok(_) => {

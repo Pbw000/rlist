@@ -37,9 +37,18 @@ impl<T: Storage> FusedStorage<T> {
     }
     pub fn remove_by_idx(&mut self, idx: usize) -> Option<Arc<T>> {
         if idx >= self.drivers.len() {
+            println!(
+                "remove_by_idx: index {} out of bounds (drivers.len() = {})",
+                idx,
+                self.drivers.len()
+            );
             return None;
         }
         let driver = self.drivers.remove(idx);
+        println!(
+            "remove_by_idx: removing driver with prefix '{}' at index {}",
+            driver.prefix, idx
+        );
         self.tree.remove(&driver.prefix)
     }
     pub fn add_driver_arc(&mut self, driver: Arc<T>, prefix: &str) {
@@ -313,9 +322,6 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
                 .ok_or(RlistError::Storage(StorageError::NotFound(
                     "Dest storage not found!".to_owned(),
                 )))?;
-
-        // 使用目标驱动来执行移动操作
-        // 目标驱动会验证 meta 类型是否匹配
         dest_drive
             .move_end_to_end(source_meta, dest_remaining_path)
             .await

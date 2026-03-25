@@ -28,7 +28,7 @@ pub struct AppState {
 
 pub struct AppStateInner {
     /// 存储引擎注册表
-    pub registry: RwLock<StorageRegistry>,
+    pub private_registry: RwLock<StorageRegistry>,
     pub auth_config: Arc<AuthConfig>,
     pub public_registry: RwLock<StorageRegistry>,
     pub challenge: ChallengeTask<4, 300>,
@@ -41,7 +41,7 @@ impl AppState {
         challenge.start_rotate(30);
         Self {
             inner: Arc::new(AppStateInner {
-                registry: RwLock::new(StorageRegistry::new()),
+                private_registry: RwLock::new(StorageRegistry::new()),
                 auth_config,
                 public_registry: RwLock::new(StorageRegistry::new()),
                 challenge,
@@ -67,7 +67,7 @@ impl AppState {
     }
     pub async fn list_private_storages(&self) -> Vec<DriverInfo> {
         self.inner
-            .registry
+            .private_registry
             .read()
             .await
             .drivers_with_prefix()
@@ -87,7 +87,7 @@ impl AppState {
         U: AsRef<str>,
     {
         let prefix_str = prefix.as_ref();
-        let mut registry = self.inner.registry.write().await;
+        let mut registry = self.inner.private_registry.write().await;
         registry.add_driver(driver, prefix_str);
     }
 
@@ -102,7 +102,7 @@ impl AppState {
     }
     pub async fn remove_private_storage(&self, idx: usize) -> Option<String> {
         self.inner
-            .public_registry
+            .private_registry
             .write()
             .await
             .remove_by_idx(idx)
@@ -111,10 +111,15 @@ impl AppState {
 
     /// 获取主注册表的读守卫
     pub async fn get_registry(&self) -> tokio::sync::RwLockReadGuard<'_, StorageRegistry> {
-        self.inner.registry.read().await
+        self.inner.private_registry.read().await
     }
     pub async fn build_cache(&self, path: &str) -> Result<(), RlistError> {
-        self.inner.registry.write().await.build_cache(path).await?;
+        self.inner
+            .private_registry
+            .write()
+            .await
+            .build_cache(path)
+            .await?;
         self.inner
             .public_registry
             .write()
@@ -132,7 +137,7 @@ impl AppState {
         content_hash: &str,
     ) -> Result<Option<crate::storage::model::FileMeta>, RlistError> {
         // path 是绝对路径（包含存储前缀），直接使用
-        let registry = self.inner.registry.read().await;
+        let registry = self.inner.private_registry.read().await;
         registry
             .complete_upload(path, upload_id, file_id, content_hash)
             .await
