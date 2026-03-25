@@ -4,7 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use rand::RngExt;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -15,50 +15,70 @@ use crate::auth::jwt::{generate_token, verify_token};
 use crate::auth::user_store::{UserCredentialsStore, UserPermissions};
 
 #[derive(Clone)]
-pub struct AuthConfig {
-    pub secret_key: Vec<u8>,
-    pub users: Arc<RwLock<HashMap<u128, AuthInfo>>>,
-    pub username_to_id: Arc<RwLock<HashMap<String, u128>>>,
+pub struct AuthConfig<const SECRET_KEY_LEN: usize = 128, const USERS_SALT_LEN: usize = 128> {
+    pub secret_key: [u8; SECRET_KEY_LEN],
+    pub users: Arc<RwLock<HashMap<u64, AuthInfo>>>,
+    pub users_salt: [u8; USERS_SALT_LEN],
     pub credentials_store: Arc<UserCredentialsStore>,
 }
 
-impl AuthConfig {
-    /// 创建新的 AuthConfig（使用现有数据库连接）
+impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
+    AuthConfig<SECRET_KEY_LEN, USERS_SALT_LEN>
+{
     pub async fn new<T: Into<Vec<u8>>>(
-        secret_key: T,
+        secret_key: [u8; SECRET_KEY_LEN],
         users: Vec<AuthInfo>,
         credentials_store: UserCredentialsStore,
     ) -> Self {
         let mut users_map = HashMap::with_capacity(users.len());
-        let mut username_map = HashMap::with_capacity(users.len());
-        for user in users {
-            let id = rand::random::<u128>();
-            username_map.insert(user.user_name.clone(), id);
-            users_map.insert(id, user);
-        }
-        AuthConfig {
-            secret_key: secret_key.into(),
-            users: Arc::new(RwLock::new(users_map)),
-            username_to_id: Arc::new(RwLock::new(username_map)),
-            credentials_store: Arc::new(credentials_store),
-        }
-    }
-    pub async fn random(users: Vec<AuthInfo>, credentials_store: UserCredentialsStore) -> Self {
-        use rand::Rng;
         let mut rng = rand::rng();
-        let mut secret_key = vec![0u8; 128];
-        rng.fill_bytes(&mut secret_key);
-        let mut users_map = HashMap::with_capacity(users.len());
-        let mut username_map = HashMap::with_capacity(users.len());
+        let mut salt = [0u8; USERS_SALT_LEN];
+        rng.fill_bytes(&mut salt);
         for user in users {
-            let id = rng.random::<u128>();
-            username_map.insert(user.user_name.clone(), id);
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            user.user_name.hash(&mut hasher);
+            salt.hash(&mut hasher);
+            let id = hasher.finish();
             users_map.insert(id, user);
         }
         AuthConfig {
             secret_key,
             users: Arc::new(RwLock::new(users_map)),
-            username_to_id: Arc::new(RwLock::new(username_map)),
+            users_salt: salt,
+            credentials_store: Arc::new(credentials_store),
+        }
+    }
+    fn username_to_id(&self, user_name: &str) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        user_name.hash(&mut hasher);
+        self.users_salt.hash(&mut hasher);
+        hasher.finish()
+    }
+    pub async fn random(users: Vec<AuthInfo>, credentials_store: UserCredentialsStore) -> Self {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let mut secret_key = [0u8; SECRET_KEY_LEN];
+        rng.fill_bytes(&mut secret_key);
+        let mut users_map = HashMap::with_capacity(users.len());
+        let mut salt = [0u8; USERS_SALT_LEN];
+        rng.fill_bytes(&mut salt);
+        for user in users {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            user.user_name.hash(&mut hasher);
+            salt.hash(&mut hasher);
+            let id = hasher.finish();
+            users_map.insert(id, user);
+        }
+        AuthConfig {
+            secret_key,
+            users: Arc::new(RwLock::new(users_map)),
+            users_salt: salt,
             credentials_store: Arc::new(credentials_store),
         }
     }
@@ -69,10 +89,9 @@ impl AuthConfig {
         password: impl AsRef<str>,
     ) -> Result<(), (StatusCode, String)> {
         let username = username.into();
-        // 检查用户名是否已存在于内存映射中
+        let uid = self.username_to_id(&username);
         {
-            let username_guard = self.username_to_id.read().await;
-            if username_guard.contains_key(&username) {
+            if self.users.read().await.contains_key(&uid) {
                 return Err((StatusCode::CONFLICT, "用户名已存在".to_string()));
             }
         }
@@ -86,30 +105,16 @@ impl AuthConfig {
             )
             .await?;
 
-        // 从数据库获取权限
         let permissions = self.credentials_store.get_permissions(&username).await?;
 
-        // 生成随机用户 ID（每次启动不同）
-        let user_id: u128 = rand::random();
-
-        // 创建 AuthInfo 并添加到内存用户列表
         let auth_info = AuthInfo {
-            user_name: username.clone(),
-            read: permissions.read,
-            download: permissions.download,
-            upload: permissions.upload,
-            delete: permissions.delete,
-            move_obj: permissions.move_obj,
-            copy: permissions.copy,
-            create_dir: permissions.create_dir,
-            list: permissions.list,
+            user_name: username,
+            permission: permissions,
         };
 
         {
             let mut users_guard = self.users.write().await;
-            let mut username_guard = self.username_to_id.write().await;
-            users_guard.insert(user_id, auth_info);
-            username_guard.insert(username, user_id);
+            users_guard.insert(uid, auth_info);
         }
 
         Ok(())
@@ -126,54 +131,19 @@ impl AuthConfig {
             .authenticate(&username, &password)
             .await?;
 
-        // 获取或创建用户 ID
-        let existing_id = {
-            let username_guard = self.username_to_id.read().await;
-            username_guard.get(&username).copied()
+        // 获取用户 ID
+        let user_id = self.username_to_id(&username);
+
+        // 更新或创建用户信息
+        let auth_info = AuthInfo {
+            user_name: username,
+            permission: permissions,
         };
 
-        let user_id = match existing_id {
-            Some(id) => {
-                // 更新现有用户的权限
-                let auth_info = AuthInfo {
-                    user_name: username.clone(),
-                    read: permissions.read,
-                    download: permissions.download,
-                    upload: permissions.upload,
-                    delete: permissions.delete,
-                    move_obj: permissions.move_obj,
-                    copy: permissions.copy,
-                    create_dir: permissions.create_dir,
-                    list: permissions.list,
-                };
-
-                let mut users_guard = self.users.write().await;
-                users_guard.insert(id, auth_info);
-                id
-            }
-            None => {
-                // 用户已注册但当前实例未加载（可能是重启后），生成新 ID
-                let new_id: u128 = rand::random();
-
-                let auth_info = AuthInfo {
-                    user_name: username.clone(),
-                    read: permissions.read,
-                    download: permissions.download,
-                    upload: permissions.upload,
-                    delete: permissions.delete,
-                    move_obj: permissions.move_obj,
-                    copy: permissions.copy,
-                    create_dir: permissions.create_dir,
-                    list: permissions.list,
-                };
-
-                let mut users_guard = self.users.write().await;
-                let mut username_guard = self.username_to_id.write().await;
-                users_guard.insert(new_id, auth_info);
-                username_guard.insert(username, new_id);
-                new_id
-            }
-        };
+        {
+            let mut users_guard = self.users.write().await;
+            users_guard.insert(user_id, auth_info);
+        }
 
         // 生成 JWT token
         match generate_token(AuthClaim { i: user_id }, &self.secret_key, 12000) {
@@ -187,35 +157,22 @@ impl AuthConfig {
 
     pub async fn remove_user(&self, username: &str) -> bool {
         let ret = self.credentials_store.remove(username).await;
-        let user_id = {
-            let mut username_guard = self.username_to_id.write().await;
-            username_guard.remove(username)
-        };
-
-        if let Some(id) = user_id {
-            let mut users_guard = self.users.write().await;
-            users_guard.remove(&id);
-        }
+        let user_id = self.username_to_id(username);
+        let mut users_guard = self.users.write().await;
+        users_guard.remove(&user_id);
         ret
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthClaim {
-    pub i: u128,
+    pub i: u64,
 }
 
 #[derive(Clone, Debug)]
 pub struct AuthInfo {
     pub user_name: String,
-    pub read: bool,
-    pub download: bool,
-    pub upload: bool,
-    pub delete: bool,
-    pub move_obj: bool,
-    pub copy: bool,
-    pub create_dir: bool,
-    pub list: bool,
+    pub permission: UserPermissions,
 }
 
 /// 权限类型枚举
@@ -235,14 +192,14 @@ impl AuthInfo {
     /// 检查用户是否有指定权限
     pub fn has_permission(&self, permission: &Permission) -> bool {
         match permission {
-            Permission::Read => self.read,
-            Permission::Download => self.download,
-            Permission::Upload => self.upload,
-            Permission::Delete => self.delete,
-            Permission::Move => self.move_obj,
-            Permission::Copy => self.copy,
-            Permission::CreateDir => self.create_dir,
-            Permission::List => self.list,
+            Permission::Read => self.permission.read,
+            Permission::Download => self.permission.download,
+            Permission::Upload => self.permission.upload,
+            Permission::Delete => self.permission.delete,
+            Permission::Move => self.permission.move_obj,
+            Permission::Copy => self.permission.copy,
+            Permission::CreateDir => self.permission.create_dir,
+            Permission::List => self.permission.list,
         }
     }
 }

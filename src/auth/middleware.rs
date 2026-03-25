@@ -118,7 +118,7 @@ pub async fn auth_permission_middleware_with_admin(
     request: Request<axum::body::Body>,
     next: Next,
     auth_config: Arc<AuthConfig>,
-) -> Result<Response, (StatusCode, &'static str)> {
+) -> Result<Response, StatusCode> {
     let (parts, body) = request.into_parts();
     let headers = &parts.headers;
 
@@ -139,7 +139,7 @@ pub async fn auth_permission_middleware_with_admin(
                 request_path = %request_path,
                 "Authentication failed: Missing AUTH-JWT-TOKEN header"
             );
-            (StatusCode::UNAUTHORIZED, "需要认证")
+            StatusCode::UNAUTHORIZED
         })?;
 
     let claim = match verify_token::<AuthClaim>(token, &auth_config.secret_key) {
@@ -159,7 +159,7 @@ pub async fn auth_permission_middleware_with_admin(
                 error = %err,
                 "Authentication failed: Jwt Verify failed"
             );
-            return Err((StatusCode::UNAUTHORIZED, "认证失败"));
+            return Err(StatusCode::UNAUTHORIZED);
         }
     };
 
@@ -184,7 +184,7 @@ pub async fn auth_permission_middleware_with_admin(
                 request_path = %request_path,
                 "Authentication failed: Invalid user ID in JWT claim"
             );
-            (StatusCode::UNAUTHORIZED, "无效用户")
+            StatusCode::UNAUTHORIZED
         })?;
     if user_info.user_name != "admin" {
         warn!(
@@ -195,13 +195,13 @@ pub async fn auth_permission_middleware_with_admin(
             user = %user_info.user_name,
             "Permission denied: User name is not admin"
         );
-        return Err((StatusCode::FORBIDDEN, "需要管理员权限"));
+        return Err(StatusCode::FORBIDDEN);
     }
     let user_permissions = auth_config
         .credentials_store
         .get_permissions(&user_info.user_name)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "服务器错误"))?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let admin_permissions = UserPermissions::admin();
     if user_permissions.to_bits() != admin_permissions.to_bits() {
         warn!(
@@ -212,7 +212,7 @@ pub async fn auth_permission_middleware_with_admin(
             user = %user_info.user_name,
             "Permission denied: User is not admin"
         );
-        return Err((StatusCode::FORBIDDEN, "需要管理员权限"));
+        return Err(StatusCode::FORBIDDEN);
     }
 
     let mut request = Request::from_parts(parts, body);

@@ -14,16 +14,27 @@
             rel="stylesheet"
             href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"
         />
-        <link rel="stylesheet" href="/css/style.css?v=20260325009" />
-        <link rel="stylesheet" href="/css/admin.css?v=20260325009" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="/css/style.css?v=20260325010" />
+        <link rel="stylesheet" href="/css/admin.css?v=20260325010" />
     </head>
     <body>
         <div class="admin-wrapper">
             <!-- 侧边栏 -->
             <aside class="admin-sidebar">
                 <div class="sidebar-header">
-                    <i class="ti ti-shield-lock"></i>
-                    <h1>RList 管理后台</h1>
+                    <div class="sidebar-logo">
+                        <i class="ti ti-shield-lock"></i>
+                    </div>
+                    <div class="sidebar-title">
+                        <h1>RList</h1>
+                        <span>管理后台</span>
+                    </div>
                 </div>
                 <nav class="sidebar-nav">
                     <a
@@ -58,15 +69,20 @@
                 <!-- 顶部栏 -->
                 <header class="admin-header">
                     <div class="admin-header-left">
+                        <button class="menu-toggle" onclick="toggleSidebar()">
+                            <i class="ti ti-menu-2"></i>
+                        </button>
                         <h2 id="pageTitle">用户管理</h2>
                     </div>
                     <div class="admin-header-right">
                         <div class="user-info">
-                            <i class="ti ti-user-circle"></i>
+                            <div class="avatar">
+                                <i class="ti ti-user-circle"></i>
+                            </div>
                             <span id="adminUsername"></span>
                         </div>
                         <button
-                            class="btn btn-secondary btn-icon"
+                            class="btn-icon"
                             onclick="logout()"
                             title="退出登录"
                         >
@@ -79,7 +95,10 @@
                 <div class="admin-content" id="usersPage">
                     <div class="content-card">
                         <div class="card-header">
-                            <h3>用户列表</h3>
+                            <div class="card-title">
+                                <i class="ti ti-users"></i>
+                                <h3>用户列表</h3>
+                            </div>
                             <div class="card-actions">
                                 <button
                                     class="btn btn-primary"
@@ -89,7 +108,7 @@
                                     <span>添加用户</span>
                                 </button>
                                 <button
-                                    class="btn btn-secondary"
+                                    class="btn btn-ghost"
                                     onclick="loadUsers()"
                                 >
                                     <i class="ti ti-refresh"></i>
@@ -138,7 +157,10 @@
                 >
                     <div class="content-card">
                         <div class="card-header">
-                            <h3>存储列表</h3>
+                            <div class="card-title">
+                                <i class="ti ti-database"></i>
+                                <h3>存储列表</h3>
+                            </div>
                             <div class="card-actions">
                                 <button
                                     class="btn btn-primary"
@@ -399,8 +421,8 @@
         <!-- Toast -->
         <div id="toastContainer"></div>
 
-        <script src="/js/utils.js?v=20260325007"></script>
-        <script src="/js/api.js?v=20260325007"></script>
-        <script src="/js/admin.js?v=20260325013"></script>
+        <script src="/js/utils.js?v=20260325010"></script>
+        <script src="/js/api.js?v=20260325010"></script>
+        <script src="/js/admin.js?v=20260325010"></script>
     </body>
 </html>

@@ -16,8 +16,7 @@ pub async fn admin_permission_middleware(
     state: State<AppState>,
     request: Request<axum::body::Body>,
     next: Next,
-) -> Result<Response, (StatusCode, &'static str)> {
-    // 使用管理员权限（所有权限）进行检查
+) -> Result<Response, StatusCode> {
     let auth_config = state.inner.auth_config.clone();
     crate::auth::middleware::auth_permission_middleware_with_admin(
         state,
