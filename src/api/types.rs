@@ -51,6 +51,13 @@ pub struct RmUserRequest {
     pub user_name: String,
 }
 
+/// 修改用户权限请求
+#[derive(Debug, Deserialize)]
+pub struct UpdatePermissionsRequest {
+    pub user_name: String,
+    pub permissions: UserPermissions,
+}
+
 /// 移动/复制请求
 #[derive(Debug, Deserialize)]
 pub struct MoveCopyRequest {

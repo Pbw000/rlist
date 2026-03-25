@@ -4,7 +4,7 @@ use crate::error::{RlistError, StorageError};
 use crate::storage::file_meta::Meta;
 use crate::storage::model::{FileContent, FileList, UploadInfoParams};
 use crate::{Storage, storage::radix_tree::RadixTree};
-
+#[derive(Debug, PartialEq, Eq)]
 pub struct FusedStorage<T: Storage> {
     drivers: Vec<Arc<T>>,
     tree: RadixTree<Arc<T>>,
@@ -50,7 +50,15 @@ impl<T: Storage> Default for FusedStorage<T> {
 
 impl<T: Storage + 'static> Storage for FusedStorage<T> {
     type Error = RlistError;
-
+    fn hash(&self) -> u64 {
+        use std::hash::Hasher;
+        let hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = hasher;
+        for driver in &self.drivers {
+            hasher.write_u64(driver.hash());
+        }
+        hasher.finish()
+    }
     fn name(&self) -> &str {
         "FusedStorage"
     }
@@ -212,22 +220,41 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         }
     }
 
-    async fn copy(&self, source_path: &str, dest_path: &str) -> Result<Meta, Self::Error> {
-        match self.get_driver(source_path) {
-            Some((driver, remaining_source)) => driver
-                .copy(remaining_source, dest_path)
+    async fn copy_end_to_end(
+        &self,
+        source_path: &str,
+        dest_path: &str,
+    ) -> Result<Meta, Self::Error> {
+        let (src_drive, src_path) =
+            self.get_driver(source_path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Source storage not found!".to_owned(),
+                )))?;
+        let (dest_drive, dst_path) =
+            self.get_driver(dest_path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Dest storage not found!".to_owned(),
+                )))?;
+        if src_drive.hash() == dest_drive.hash() {
+            src_drive
+                .copy_end_to_end(src_path, dst_path)
                 .await
-                .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound(
-                "路径未找到".to_string(),
-            ))),
+                .map_err(|e| e.into())
+        } else {
+            Err(RlistError::Storage(StorageError::OperationFailed(
+                "Cannot copy between different storage drivers".to_string(),
+            )))
         }
     }
 
-    async fn move_(&self, source_path: &str, dest_path: &str) -> Result<Meta, Self::Error> {
+    async fn move_end_to_end(
+        &self,
+        source_path: &str,
+        dest_path: &str,
+    ) -> Result<Meta, Self::Error> {
         match self.get_driver(source_path) {
             Some((driver, remaining_source)) => driver
-                .move_(remaining_source, dest_path)
+                .move_end_to_end(remaining_source, dest_path)
                 .await
                 .map_err(|e| e.into()),
             None => Err(RlistError::Storage(StorageError::NotFound(
@@ -260,35 +287,19 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         }
     }
 
-    fn upload_mode(&self) -> crate::storage::model::UploadMode {
-        // 默认返回 Relay 模式
-        crate::storage::model::UploadMode::Relay
-    }
-
     async fn get_upload_info(
         &self,
         params: crate::storage::model::UploadInfoParams,
     ) -> Result<crate::storage::model::UploadInfo, Self::Error> {
         match self.get_driver(&params.path) {
-            Some((driver, remaining_path)) => {
-                // 检查驱动是否支持 Direct 模式
-                if driver.upload_mode() == crate::storage::model::UploadMode::Direct {
-                    driver
-                        .get_upload_info(crate::storage::model::UploadInfoParams {
-                            path: remaining_path.to_string(),
-                            size: params.size,
-                            hash: params.hash,
-                        })
-                        .await
-                        .map_err(|e| e.into())
-                } else {
-                    // 不支持 Direct 模式，返回错误
-                    Err(RlistError::Storage(StorageError::Unsupported(
-                        "不支持 Direct 上传模式".to_string(),
-                    ))
-                    .into())
-                }
-            }
+            Some((driver, remaining_path)) => driver
+                .get_upload_info(crate::storage::model::UploadInfoParams {
+                    path: remaining_path.to_string(),
+                    size: params.size,
+                    hash: params.hash,
+                })
+                .await
+                .map_err(|e| e.into()),
             None => Err(RlistError::Storage(StorageError::NotFound(
                 "路径未找到".to_string(),
             ))),

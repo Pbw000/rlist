@@ -133,6 +133,10 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .route("/admin/user/register", post(admin::register))
         .route("/admin/user/list", get(admin::list_users))
         .route("/admin/user/remove", post(admin::remove_user))
+        .route(
+            "/admin/user/permissions",
+            post(admin::update_user_permissions),
+        )
         .route("/admin/storage/list", get(user::list_storages))
         .route("/admin/storage/add", post(admin::add_storage))
         .route(

@@ -50,7 +50,8 @@ async function checkAuthAndLoad() {
   }
 
   // 显示用户名
-  document.getElementById("adminUsername").textContent = currentUser || "管理员";
+  document.getElementById("adminUsername").textContent =
+    currentUser || "管理员";
 
   // 加载用户列表
   loadUsers();
@@ -134,11 +135,17 @@ async function loadUsers() {
           <td>
             ${
               user.username !== "admin"
-                ? `<button class="action-btn-sm delete" onclick="confirmDeleteUser('${escapeHtml(user.username)}')" title="删除用户">
-                    <i class="ti ti-trash"></i>
-                    <span>删除</span>
-                  </button>`
-                : '<span style="color: var(--text-secondary); font-size: 12px;">不可删除</span>'
+                ? `<div class="action-buttons">
+                    <button class="action-btn-sm edit" onclick="showEditPermissionsModal('${escapeHtml(user.username)}')" title="编辑权限">
+                      <i class="ti ti-edit"></i>
+                      <span>编辑</span>
+                    </button>
+                    <button class="action-btn-sm delete" onclick="confirmDeleteUser('${escapeHtml(user.username)}')" title="删除用户">
+                      <i class="ti ti-trash"></i>
+                      <span>删除</span>
+                    </button>
+                  </div>`
+                : '<span style="color: var(--text-secondary); font-size: 12px;">不可修改</span>'
             }
           </td>
         </tr>
@@ -348,6 +355,77 @@ async function confirmAddStorage() {
 }
 
 /**
+ * 显示编辑权限模态框
+ * @param {string} username - 用户名
+ */
+async function showEditPermissionsModal(username) {
+  const result = await listUsers();
+  if (result.code !== 200 || !result.data) {
+    showToast("获取用户列表失败", "error");
+    return;
+  }
+
+  const user = result.data.find((u) => u.username === username);
+  if (!user) {
+    showToast("用户不存在", "error");
+    return;
+  }
+
+  document.getElementById("editUsername").value = username;
+  document.getElementById("editPermRead").checked = user.permissions.read;
+  document.getElementById("editPermDownload").checked =
+    user.permissions.download;
+  document.getElementById("editPermUpload").checked = user.permissions.upload;
+  document.getElementById("editPermDelete").checked = user.permissions.delete;
+  document.getElementById("editPermMove").checked = user.permissions.move_obj;
+  document.getElementById("editPermCopy").checked = user.permissions.copy;
+  document.getElementById("editPermCreateDir").checked =
+    user.permissions.create_dir;
+  document.getElementById("editPermList").checked = user.permissions.list;
+
+  document.getElementById("editPermissionsModal").style.display = "flex";
+}
+
+/**
+ * 隐藏编辑权限模态框
+ */
+function hideEditPermissionsModal() {
+  document.getElementById("editPermissionsModal").style.display = "none";
+}
+
+/**
+ * 确认编辑权限
+ */
+async function confirmEditPermissions() {
+  const username = document.getElementById("editUsername").value.trim();
+
+  if (!username) {
+    showToast("用户名无效", "error");
+    return;
+  }
+
+  const permissions = {
+    read: document.getElementById("editPermRead").checked,
+    download: document.getElementById("editPermDownload").checked,
+    upload: document.getElementById("editPermUpload").checked,
+    delete: document.getElementById("editPermDelete").checked,
+    move_obj: document.getElementById("editPermMove").checked,
+    copy: document.getElementById("editPermCopy").checked,
+    create_dir: document.getElementById("editPermCreateDir").checked,
+    list: document.getElementById("editPermList").checked,
+  };
+
+  const result = await updatePermissions(username, permissions);
+  if (result.code === 200) {
+    hideEditPermissionsModal();
+    showToast("权限更新成功", "success");
+    loadUsers();
+  } else {
+    showToast("更新失败：" + result.message, "error");
+  }
+}
+
+/**
  * 确认删除存储
  * @param {string} name - 存储名称
  */
@@ -356,9 +434,12 @@ async function confirmDeleteStorage(name) {
     return;
   }
 
-  const result = await apiRequest(`/admin/storage/delete/${encodeURIComponent(name)}`, {
-    method: "DELETE",
-  });
+  const result = await apiRequest(
+    `/admin/storage/delete/${encodeURIComponent(name)}`,
+    {
+      method: "DELETE",
+    },
+  );
 
   if (result.code === 200) {
     showToast("存储删除成功", "success");
@@ -388,9 +469,14 @@ document.addEventListener("keydown", (e) => {
       document.getElementById("addStorageModal").style.display === "flex"
     ) {
       confirmAddStorage();
+    } else if (
+      document.getElementById("editPermissionsModal").style.display === "flex"
+    ) {
+      confirmEditPermissions();
     }
   } else if (e.key === "Escape") {
     hideAddUserModal();
     hideAddStorageModal();
+    hideEditPermissionsModal();
   }
 });

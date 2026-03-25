@@ -123,7 +123,12 @@ impl Storage for LocalStorage {
     fn is_readonly(&self) -> bool {
         false
     }
-
+    fn hash(&self) -> u64 {
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        hasher.write(self.root.to_string_lossy().as_bytes());
+        hasher.finish()
+    }
     async fn handle_path(&self, path: &str) -> Result<FileMeta, Self::Error> {
         let normalized = self.normalize_path(path)?;
         self.meta_from_path(&normalized)
@@ -265,7 +270,7 @@ impl Storage for LocalStorage {
         }
     }
 
-    fn copy(
+    fn copy_end_to_end(
         &self,
         source_path: &str,
         dest_path: &str,
@@ -286,7 +291,7 @@ impl Storage for LocalStorage {
         }
     }
 
-    fn move_(
+    fn move_end_to_end(
         &self,
         source_path: &str,
         dest_path: &str,
@@ -327,11 +332,6 @@ impl Storage for LocalStorage {
 
             self.meta_from_path(&normalized)
         }
-    }
-
-    fn upload_mode(&self) -> crate::storage::model::UploadMode {
-        // 本地存储支持 Direct 模式，直接返回文件路径
-        crate::storage::model::UploadMode::Direct
     }
 
     fn get_upload_info(

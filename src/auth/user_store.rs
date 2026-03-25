@@ -367,7 +367,6 @@ impl UserCredentialsStore {
         Ok(())
     }
 
-    /// 检查用户是否存在
     pub async fn exists(&self, username: &str) -> bool {
         let result: Option<(i32,)> =
             sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")

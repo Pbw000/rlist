@@ -92,28 +92,18 @@ pub struct UploadInfo {
 
 pub trait Storage: Send + Sync {
     type Error: Send + Sync + Error + 'static + Into<RlistError> + From<String>;
+    type End2EndCopyMeta: Send;
+    type End2EndMoveMeta: Send;
 
     /// 存储名称（人类可读）
     fn name(&self) -> &str;
+    fn hash(&self) -> u64;
 
     /// 驱动名称（标识符）
     fn driver_name(&self) -> &str {
         self.name()
     }
 
-    /// 是否只读
-    fn is_readonly(&self) -> bool {
-        false
-    }
-
-    /// 构建指定目录的缓存（可选实现）
-    ///
-    /// # 参数
-    /// * `path` - 需要构建缓存的目录路径，空字符串表示根目录
-    ///
-    /// # 返回
-    /// * `Ok(())` - 缓存构建成功
-    /// * `Err(Self::Error)` - 缓存构建失败
     fn build_cache(&self, _path: &str) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
     }
@@ -162,24 +152,27 @@ pub trait Storage: Send + Sync {
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
     /// 复制
-    fn copy(
+    fn copy_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
+    fn gen_copy_meta(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = Result<Self::End2EndCopyMeta, Self::Error>> + Send;
     /// 移动
-    fn move_(
+    fn move_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
-    /// 获取上传模式
-    /// 返回 `UploadMode::Direct` 表示支持直接上传，返回 `UploadMode::Relay` 表示需要中继上传
-    fn upload_mode(&self) -> UploadMode {
-        UploadMode::Relay
-    }
+    fn gen_move_meta(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = Result<Self::End2EndMoveMeta, Self::Error>> + Send;
 
     fn get_upload_info(
         &self,

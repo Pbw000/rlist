@@ -64,10 +64,21 @@ impl McloudStorage {
         }
     }
 }
+impl PartialEq for McloudStorage {
+    fn eq(&self, other: &Self) -> bool {
+        self.config.authorization == other.config.authorization
+    }
+}
 
+impl Eq for McloudStorage {}
 impl Storage for McloudStorage {
     type Error = McloudError;
-
+    fn hash(&self) -> u64 {
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        hasher.write(self.config.authorization.as_bytes());
+        hasher.finish()
+    }
     fn name(&self) -> &str {
         "中国移动云盘"
     }
@@ -286,7 +297,7 @@ impl Storage for McloudStorage {
         }
     }
 
-    fn copy(
+    fn copy_end_to_end(
         &self,
         source_path: &str,
         dest_path: &str,
@@ -313,7 +324,7 @@ impl Storage for McloudStorage {
         }
     }
 
-    fn move_(
+    fn move_end_to_end(
         &self,
         _source_path: &str,
         _dest_path: &str,
@@ -375,10 +386,6 @@ impl Storage for McloudStorage {
         };
         self.build_cache(&file_path).await?;
         self.get_meta(path).await
-    }
-
-    fn upload_mode(&self) -> crate::storage::model::UploadMode {
-        crate::storage::model::UploadMode::Direct
     }
 
     fn get_upload_info(

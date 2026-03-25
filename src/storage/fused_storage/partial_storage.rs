@@ -1,14 +1,33 @@
 use crate::Storage;
-use crate::storage::model::{
-    FileContent, FileList, FileMeta, UploadInfo, UploadInfoParams, UploadMode,
-};
+use crate::storage::model::{FileContent, FileList, FileMeta, UploadInfo, UploadInfoParams};
 
 pub struct PartialStorage<T: Storage> {
     pub inner: T,
     pub prefix_path: String,
     read_only: bool,
 }
+use std::ops::{Deref, DerefMut};
 
+impl<T: Storage> Deref for PartialStorage<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T: Storage> DerefMut for PartialStorage<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+impl<T: Storage> PartialEq for PartialStorage<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.prefix_path == other.prefix_path && self.read_only == other.read_only
+    }
+}
+
+impl<T: Storage> Eq for PartialStorage<T> {}
 impl<T: Storage> PartialStorage<T> {
     pub fn new(inner: T, prefix_path: &str) -> Self {
         let prefix_path = prefix_path.trim_matches('/');
@@ -33,6 +52,9 @@ impl<T: Storage> PartialStorage<T> {
 
 impl<T: Storage> Storage for PartialStorage<T> {
     type Error = T::Error;
+    fn hash(&self) -> u64 {
+        self.inner.hash()
+    }
     async fn build_cache(&self, path: &str) -> Result<(), Self::Error> {
         self.inner.build_cache(&self.handle_path(path)).await
     }
@@ -104,30 +126,34 @@ impl<T: Storage> Storage for PartialStorage<T> {
             .await
     }
 
-    async fn copy(&self, source_path: &str, dest_path: &str) -> Result<FileMeta, Self::Error> {
+    async fn copy_end_to_end(
+        &self,
+        source_path: &str,
+        dest_path: &str,
+    ) -> Result<FileMeta, Self::Error> {
         if self.read_only {
             return Err(<T as Storage>::Error::from(
                 "Storage is read-only".to_string(),
             ));
         }
         self.inner
-            .copy(&self.handle_path(source_path), &self.handle_path(dest_path))
+            .copy_end_to_end(&self.handle_path(source_path), &self.handle_path(dest_path))
             .await
     }
 
-    async fn move_(&self, source_path: &str, dest_path: &str) -> Result<FileMeta, Self::Error> {
+    async fn move_end_to_end(
+        &self,
+        source_path: &str,
+        dest_path: &str,
+    ) -> Result<FileMeta, Self::Error> {
         if self.read_only {
             return Err(<T as Storage>::Error::from(
                 "Storage is read-only".to_string(),
             ));
         }
         self.inner
-            .move_(&self.handle_path(source_path), &self.handle_path(dest_path))
+            .move_end_to_end(&self.handle_path(source_path), &self.handle_path(dest_path))
             .await
-    }
-
-    fn upload_mode(&self) -> UploadMode {
-        self.inner.upload_mode()
     }
 
     async fn get_upload_info(&self, params: UploadInfoParams) -> Result<UploadInfo, Self::Error> {

@@ -524,3 +524,19 @@ async function removeUser(username) {
     }),
   });
 }
+
+/**
+ * 修改用户权限
+ * @param {string} username - 用户名
+ * @param {Object} permissions - 权限对象
+ * @returns {Promise<Object>} - 修改结果
+ */
+async function updatePermissions(username, permissions) {
+  return await apiRequest("/admin/user/permissions", {
+    method: "POST",
+    body: JSON.stringify({
+      user_name: username,
+      permissions: permissions,
+    }),
+  });
+}

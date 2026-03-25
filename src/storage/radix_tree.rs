@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RadixTree<T: Clone> {
     pub root: Node<T>,
 }
@@ -133,7 +133,7 @@ impl<T: Clone> RadixTree<T> {
         RadixTreePathIterable::new(self)
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node<T> {
     pub children: Vec<(String, Node<T>)>,
     pub value: Option<T>,

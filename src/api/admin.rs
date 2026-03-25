@@ -1,16 +1,15 @@
 //! 管理员处理器 - 需要管理员权限
 
+use crate::{
+    api::{state::AppState, types::*},
+    auth::challenge::IntoHashContext,
+};
 use axum::{
     Json,
     extract::{Path, State},
     response::IntoResponse,
 };
 use ring::digest::SHA512;
-
-use crate::{
-    api::{state::AppState, types::*},
-    auth::challenge::IntoHashContext,
-};
 
 use crate::api::types::ApiResponse;
 
@@ -81,6 +80,41 @@ pub async fn remove_user(
         ApiResponse::success(serde_json::json!({"deleted": req.user_name}))
     } else {
         ApiResponse::error(404, "User not found".to_string())
+    }
+}
+
+/// 修改用户权限
+pub async fn update_user_permissions(
+    State(state): State<AppState>,
+    Json(req): Json<UpdatePermissionsRequest>,
+) -> impl IntoResponse {
+    if req.user_name == "admin" {
+        return ApiResponse::error(400, "不能修改 admin 用户的权限".to_string());
+    }
+
+    // 检查用户是否存在
+    if !state
+        .inner
+        .auth_config
+        .credentials_store
+        .exists(&req.user_name)
+        .await
+    {
+        return ApiResponse::error(404, "用户不存在".to_string());
+    }
+
+    match state
+        .inner
+        .auth_config
+        .credentials_store
+        .update_permissions(&req.user_name, req.permissions.into())
+        .await
+    {
+        Ok(_) => ApiResponse::success(serde_json::json!({
+            "message": "权限更新成功",
+            "username": req.user_name
+        })),
+        Err(e) => ApiResponse::error(500, format!("更新权限失败：{}", e.1)),
     }
 }
 

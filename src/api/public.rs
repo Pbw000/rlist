@@ -110,13 +110,10 @@ pub async fn complete_upload(
             };
             ApiResponse::success(resp)
         }
-        Ok(None) => {
-            // 返回 None 表示不需要 complete 步骤（默认实现）
-            ApiResponse::success(UploadResult {
-                path: query.path,
-                size: 0,
-            })
-        }
+        Ok(None) => ApiResponse::success(UploadResult {
+            path: query.path,
+            size: 0,
+        }),
         Err(e) => ApiResponse::error(500, format!("完成上传失败：{}", e)),
     }
 }
@@ -291,7 +288,10 @@ pub async fn copy(
 ) -> impl IntoResponse {
     let registry_guard = state.inner.registry.read().await;
 
-    match registry_guard.copy(&req.src_path, &req.dst_path).await {
+    match registry_guard
+        .copy_end_to_end(&req.src_path, &req.dst_path)
+        .await
+    {
         Ok(_) => {
             ApiResponse::success(serde_json::json!({"src": req.src_path, "dst": req.dst_path}))
         }
@@ -306,7 +306,10 @@ pub async fn move_file(
 ) -> impl IntoResponse {
     let registry_guard = state.inner.registry.read().await;
 
-    match registry_guard.move_(&req.src_path, &req.dst_path).await {
+    match registry_guard
+        .move_end_to_end(&req.src_path, &req.dst_path)
+        .await
+    {
         Ok(_) => {
             ApiResponse::success(serde_json::json!({"src": req.src_path, "dst": req.dst_path}))
         }
