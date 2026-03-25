@@ -132,6 +132,14 @@
                 >
                     <i class="ti ti-settings"></i> 管理
                 </button>
+                <button
+                    class="btn btn-secondary"
+                    id="publicStorageBtn"
+                    onclick="showPublicStorage()"
+                    title="公开存储"
+                >
+                    <i class="ti ti-world"></i> 公开存储
+                </button>
                 <div style="flex: 1"></div>
                 <div class="view-toggle">
                     <button
@@ -343,6 +351,31 @@
                     <button
                         class="btn btn-primary"
                         onclick="hideUploadProgressModal()"
+                    >
+                        关闭
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Public Storage Modal -->
+        <div
+            class="modal-overlay"
+            id="publicStorageModal"
+            style="display: none"
+        >
+            <div class="modal">
+                <h2><i class="ti ti-world"></i> 公开存储</h2>
+                <div
+                    id="publicStorageContent"
+                    style="max-height: 300px; overflow-y: auto"
+                >
+                    <div class="loading"><div class="spinner"></div></div>
+                </div>
+                <div class="modal-actions">
+                    <button
+                        class="btn btn-secondary"
+                        onclick="hidePublicStorageModal()"
                     >
                         关闭
                     </button>

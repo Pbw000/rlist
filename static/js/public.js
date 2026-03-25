@@ -19,6 +19,22 @@ let previewFileType = "";
 
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
+  // 从 URL 参数获取 storage 参数
+  const urlParams = new URLSearchParams(window.location.search);
+  const storageParam = urlParams.get("storage");
+
+  // 如果有 storage 参数，更新当前路径并显示存储徽章
+  if (storageParam) {
+    currentPath = storageParam;
+    // 显示存储徽章
+    const storageBadge = document.getElementById("storageBadge");
+    const storageBadgeName = document.getElementById("storageBadgeName");
+    if (storageBadge && storageBadgeName) {
+      storageBadge.style.display = "inline-flex";
+      storageBadgeName.textContent = storageParam;
+    }
+  }
+
   // 初始化主题
   initTheme();
 

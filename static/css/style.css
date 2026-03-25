@@ -98,6 +98,24 @@ body {
     color: var(--text-secondary);
 }
 
+/* Storage Badge */
+.storage-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--primary-color);
+    color: white;
+    border-radius: 20px;
+    font-size: 13px;
+    margin-left: 12px;
+    margin-top: 8px;
+}
+
+.storage-badge i {
+    font-size: 16px;
+}
+
 .header-right {
     display: flex;
     gap: 12px;
@@ -533,6 +551,62 @@ body {
     display: flex;
     gap: 12px;
     justify-content: flex-end;
+}
+
+/* Storage List */
+.storage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.storage-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--card-bg);
+}
+
+.storage-item:hover {
+    background: var(--hover-bg);
+    border-color: var(--primary-color);
+}
+
+.storage-item i:first-child {
+    color: var(--primary-color);
+    font-size: 20px;
+}
+
+.storage-item-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.storage-item-name {
+    font-weight: 500;
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.storage-item-path {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.storage-item i:last-child {
+    color: var(--text-secondary);
 }
 
 /* Preview Modal */

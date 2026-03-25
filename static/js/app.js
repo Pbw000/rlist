@@ -130,6 +130,84 @@ async function handleLogin() {
   }
 }
 
+// ==================== 公开存储相关函数 ====================
+
+/**
+ * 显示公开存储列表
+ */
+async function showPublicStorage() {
+  const modal = document.getElementById("publicStorageModal");
+  const content = document.getElementById("publicStorageContent");
+
+  modal.style.display = "flex";
+  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    // 获取公开存储列表（从 /api/admin/storage/list 获取）
+    const response = await fetch("/api/admin/storage/list", {
+      headers: getAuthHeaders(),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.code === 200 && result.data) {
+        const storages = result.data;
+        if (storages.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <i class="ti ti-folder-open"></i>
+              <p>暂无公开存储</p>
+            </div>
+          `;
+        } else {
+          content.innerHTML = `
+            <div class="storage-list">
+              ${storages
+                .map(
+                  (s) => `
+                <div class="storage-item" onclick="openPublicStorage('${escapeHtml(s.id)}', '${escapeHtml(s.name)}')">
+                  <i class="ti ti-world"></i>
+                  <div class="storage-item-info">
+                    <div class="storage-item-name">${escapeHtml(s.name)}</div>
+                    <div class="storage-item-path">${escapeHtml(s.id)}</div>
+                  </div>
+                  <i class="ti ti-chevron-right"></i>
+                </div>
+              `,
+                )
+                .join("")}
+            </div>
+          `;
+        }
+      } else {
+        content.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i><p>获取公开存储列表失败</p></div>`;
+      }
+    } else {
+      content.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i><p>获取公开存储列表失败</p></div>`;
+    }
+  } catch (error) {
+    content.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i><p>网络错误：${escapeHtml(error.message)}</p></div>`;
+  }
+}
+
+/**
+ * 隐藏公开存储模态框
+ */
+function hidePublicStorageModal() {
+  document.getElementById("publicStorageModal").style.display = "none";
+}
+
+/**
+ * 打开公开存储（在新窗口中）
+ * @param {string} id - 存储 ID
+ * @param {string} name - 存储名称
+ */
+function openPublicStorage(id, name) {
+  // 打开公开访问页面，带上存储路径参数
+  window.open(`/public.html?storage=${encodeURIComponent(id)}`, "_blank");
+  hidePublicStorageModal();
+}
+
 // ==================== 文件列表相关函数 ====================
 
 /**
