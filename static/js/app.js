@@ -10,6 +10,8 @@ let currentView = localStorage.getItem("rlist_view") || "list";
 let previewFilePath = "";
 let contextMenuTarget = null;
 let selectedPathForAction = null;
+let isPublicStorageMode = false; // 当前存储模式：false=私有，true=公开
+let currentStoragePath = "/"; // 当前存储路径
 
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
@@ -60,6 +62,23 @@ function initTheme() {
 }
 
 /**
+ * 主题切换
+ */
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const themeIcon = document.getElementById("themeIcon");
+  if (isDark) {
+    document.documentElement.removeAttribute("data-theme");
+    if (themeIcon) themeIcon.className = "ti ti-moon";
+    localStorage.setItem("rlist_theme", "light");
+  } else {
+    document.documentElement.setAttribute("data-theme", "dark");
+    if (themeIcon) themeIcon.className = "ti ti-sun";
+    localStorage.setItem("rlist_theme", "dark");
+  }
+}
+
+/**
  * 检查认证并加载
  */
 async function checkAuthAndLoad() {
@@ -86,8 +105,13 @@ function showMainInterface(username) {
   document.getElementById("mainContainer").style.display = "block";
   document.getElementById("userInfo").style.display = "flex";
   document.getElementById("usernameDisplay").textContent = username;
+  // 显示存储切换开关
+  const storageSwitch = document.getElementById("storageSwitch");
+  if (storageSwitch) {
+    storageSwitch.style.display = "flex";
+  }
   setView(currentView);
-  fileManager.loadFiles("/");
+  loadCurrentStorageFiles();
 }
 
 /**
@@ -133,6 +157,79 @@ async function handleLogin() {
 // ==================== 公开存储相关函数 ====================
 
 /**
+ * 切换存储模式（公开/私有）
+ * @param {boolean} isPublic - 是否为公开模式
+ */
+function toggleStorageMode(isPublic) {
+  isPublicStorageMode = isPublic;
+  currentStoragePath = "/"; // 切换时重置路径
+  loadCurrentStorageFiles();
+}
+
+/**
+ * 加载当前存储模式的文件列表
+ */
+function loadCurrentStorageFiles() {
+  if (isPublicStorageMode) {
+    loadPublicStorageFiles();
+  } else {
+    fileManager.loadFiles("/");
+  }
+}
+
+/**
+ * 加载公开存储文件列表
+ */
+async function loadPublicStorageFiles() {
+  const fileList = document.getElementById("fileList");
+  if (!fileList) return;
+
+  fileList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    const response = await fetch("/obs/list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: currentStoragePath }),
+    });
+
+    const result = await response.json();
+
+    if (result.code === 200 && result.data) {
+      const rawItems = result.data.items || [];
+      const filesData = rawItems.map((item) => {
+        const isDir = item.File === undefined;
+        return {
+          name: item.File?.name || item.Directory?.name || "unknown",
+          path: currentStoragePath.endsWith("/")
+            ? currentStoragePath +
+              (item.File?.name || item.Directory?.name || "")
+            : currentStoragePath +
+              "/" +
+              (item.File?.name || item.Directory?.name || ""),
+          size: item.File?.size || 0,
+          file_type: isDir ? "dir" : "file",
+          modified: item.File?.modified_at || item.Directory?.modified_at,
+        };
+      });
+      fileManager.filesData = filesData;
+      fileManager.selectedFiles.clear();
+      renderFiles(filesData);
+      updateBreadcrumb();
+      updateDeleteButton();
+    } else {
+      fileList.innerHTML =
+        '<div class="empty-state"><i class="ti ti-folder-x"></i><p>加载失败</p></div>';
+      showToast("加载文件列表失败：" + result.message, "error");
+    }
+  } catch (error) {
+    fileList.innerHTML =
+      '<div class="empty-state"><i class="ti ti-wifi-off"></i><p>无法连接到服务器</p></div>';
+    showToast("网络错误：" + error.message, "error");
+  }
+}
+
+/**
  * 显示公开存储列表
  */
 async function showPublicStorage() {
@@ -148,11 +245,25 @@ async function showPublicStorage() {
       headers: getAuthHeaders(),
     });
 
+    if (response.status === 403) {
+      // 非管理员用户，显示提示
+      content.innerHTML = `
+        <div class="empty-state">
+          <i class="ti ti-lock"></i>
+          <p>只有管理员可以查看存储列表</p>
+          <p style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);">您可以直接使用顶部的公开/私有存储切换开关</p>
+        </div>
+      `;
+      return;
+    }
+
     if (response.ok) {
       const result = await response.json();
       if (result.code === 200 && result.data) {
         const storages = result.data;
-        if (storages.length === 0) {
+        // 适配新的响应格式 { public: [...], private: [...] }
+        const publicStorages = storages.public || [];
+        if (publicStorages.length === 0) {
           content.innerHTML = `
             <div class="empty-state">
               <i class="ti ti-folder-open"></i>
@@ -162,14 +273,14 @@ async function showPublicStorage() {
         } else {
           content.innerHTML = `
             <div class="storage-list">
-              ${storages
+              ${publicStorages
                 .map(
                   (s) => `
-                <div class="storage-item" onclick="openPublicStorage('${escapeHtml(s.id)}', '${escapeHtml(s.name)}')">
+                <div class="storage-item" onclick="openPublicStorage('${escapeHtml(s.path)}', '${escapeHtml(s.name)}')">
                   <i class="ti ti-world"></i>
                   <div class="storage-item-info">
                     <div class="storage-item-name">${escapeHtml(s.name)}</div>
-                    <div class="storage-item-path">${escapeHtml(s.id)}</div>
+                    <div class="storage-item-path">${escapeHtml(s.path)}</div>
                   </div>
                   <i class="ti ti-chevron-right"></i>
                 </div>
@@ -198,14 +309,22 @@ function hidePublicStorageModal() {
 }
 
 /**
- * 打开公开存储（在新窗口中）
- * @param {string} id - 存储 ID
+ * 打开公开存储（切换到公开模式并加载）
+ * @param {string} path - 存储路径
  * @param {string} name - 存储名称
  */
-function openPublicStorage(id, name) {
-  // 打开公开访问页面，带上存储路径参数
-  window.open(`/public.html?storage=${encodeURIComponent(id)}`, "_blank");
+function openPublicStorage(path, name) {
+  // 切换到公开存储模式
+  isPublicStorageMode = true;
+  currentStoragePath = path;
+  // 更新开关状态
+  const switchToggle = document.getElementById("storageSwitchToggle");
+  if (switchToggle) {
+    switchToggle.checked = true;
+  }
   hidePublicStorageModal();
+  loadCurrentStorageFiles();
+  showToast(`已切换到公开存储：${name}`, "success");
 }
 
 // ==================== 文件列表相关函数 ====================
@@ -215,7 +334,12 @@ function openPublicStorage(id, name) {
  * @param {string} path - 路径
  */
 function navigateTo(path) {
-  fileManager.navigateTo(path);
+  if (isPublicStorageMode) {
+    currentStoragePath = path || "/";
+    loadPublicStorageFiles();
+  } else {
+    fileManager.navigateTo(path);
+  }
   updateBreadcrumb();
 }
 
@@ -231,7 +355,11 @@ function enterFolder(path) {
  * 刷新文件列表
  */
 function refresh() {
-  fileManager.refresh();
+  if (isPublicStorageMode) {
+    loadPublicStorageFiles();
+  } else {
+    fileManager.refresh();
+  }
 }
 
 /**
@@ -241,8 +369,16 @@ function refresh() {
 function handleSearch(query) {
   if (!fileManager) return;
 
-  const filtered = fileManager.search(query);
-  renderFiles(filtered);
+  if (isPublicStorageMode) {
+    // 公开存储模式下使用本地数据搜索
+    const filtered = (fileManager.filesData || []).filter((f) =>
+      f.name.toLowerCase().includes(query.toLowerCase()),
+    );
+    renderFiles(filtered);
+  } else {
+    const filtered = fileManager.search(query);
+    renderFiles(filtered);
+  }
 }
 
 /**
@@ -250,7 +386,9 @@ function handleSearch(query) {
  */
 function updateBreadcrumb() {
   const breadcrumb = document.getElementById("breadcrumb");
-  const currentPath = fileManager?.currentPath || "/";
+  const currentPath = isPublicStorageMode
+    ? currentStoragePath
+    : fileManager?.currentPath || "/";
   const parts = currentPath.split("/").filter((p) => p);
   let html =
     '<a href="#" onclick="navigateTo(\'/\'); return false;"><i class="ti ti-home"></i></a>';
@@ -284,9 +422,12 @@ function renderFiles(files) {
   const fileItems = files.filter((f) => f.file_type === "file");
   const sortedFiles = [...dirs, ...fileItems];
 
+  // 公开存储模式下隐藏复选框
+  const showCheckbox = !isPublicStorageMode;
+
   fileList.innerHTML = `
     <div class="file-list-header">
-        <div><input type="checkbox" class="checkbox" onchange="toggleSelectAll(this.checked)"></div>
+        ${showCheckbox ? '<div><input type="checkbox" class="checkbox" onchange="toggleSelectAll(this.checked)"></div>' : ""}
         <div>名称</div>
         <div>大小</div>
         <div>修改日期</div>
@@ -299,11 +440,17 @@ function renderFiles(files) {
              data-path="${escapeHtml(file.path)}"
              data-type="${file.file_type}"
              oncontextmenu="showContextMenu(event, '${escapeHtml(file.path)}', '${file.file_type}')">
+            ${
+              showCheckbox
+                ? `
             <div>
                 <input type="checkbox" class="checkbox"
                        ${fileManager.selectedFiles.has(file.path) ? "checked" : ""}
                        onchange="toggleSelection('${escapeHtml(file.path)}', this.checked)">
             </div>
+            `
+                : ""
+            }
             <div class="file-main" ondblclick="handleDoubleClick('${escapeHtml(file.path)}', '${file.file_type}')">
                 <div class="file-icon">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
                 <div>
@@ -363,6 +510,10 @@ function handleDoubleClick(path, type) {
  * @param {boolean} checked - 是否选中
  */
 function toggleSelection(path, checked) {
+  if (isPublicStorageMode) {
+    showToast("公开存储模式下不支持选择操作", "error");
+    return;
+  }
   fileManager.toggleSelection(path, checked);
   updateDeleteButton();
   renderFiles(fileManager.filesData);
@@ -373,6 +524,10 @@ function toggleSelection(path, checked) {
  * @param {boolean} checked - 是否全选
  */
 function toggleSelectAll(checked) {
+  if (isPublicStorageMode) {
+    showToast("公开存储模式下不支持选择操作", "error");
+    return;
+  }
   fileManager.toggleSelectAll(checked);
   updateDeleteButton();
   renderFiles(fileManager.filesData);
@@ -383,6 +538,11 @@ function toggleSelectAll(checked) {
  */
 function updateDeleteButton() {
   const deleteBtn = document.getElementById("deleteBtn");
+  if (isPublicStorageMode) {
+    // 公开存储模式下隐藏删除按钮
+    deleteBtn.style.display = "none";
+    return;
+  }
   const count = fileManager.getSelectedCount();
   deleteBtn.style.display = count > 0 ? "flex" : "none";
   if (count > 0) {
@@ -394,6 +554,10 @@ function updateDeleteButton() {
  * 删除选中的文件
  */
 async function deleteSelected() {
+  if (isPublicStorageMode) {
+    showToast("公开存储模式下不支持删除操作", "error");
+    return;
+  }
   const count = fileManager.getSelectedCount();
   if (count === 0) return;
 
@@ -455,6 +619,10 @@ async function confirmDelete() {
  * 显示新建文件夹模态框
  */
 function showNewFolderModal() {
+  if (isPublicStorageMode) {
+    showToast("公开存储模式下不支持创建文件夹", "error");
+    return;
+  }
   document.getElementById("newFolderModal").style.display = "flex";
   document.getElementById("folderNameInput").value = "";
   document.getElementById("folderNameInput").focus();
@@ -471,6 +639,10 @@ function hideNewFolderModal() {
  * 创建文件夹
  */
 async function createFolder() {
+  if (isPublicStorageMode) {
+    showToast("公开存储模式下不支持创建文件夹", "error");
+    return;
+  }
   const name = document.getElementById("folderNameInput").value.trim();
   if (!name) {
     showToast("请输入文件夹名称", "error");
@@ -588,13 +760,18 @@ async function previewFile(path, name) {
   ];
   const docExts = ["pdf"];
 
-  const result = await fileManager.getPreviewUrl(path);
-  if (!result.success) {
-    showToast("获取文件失败：" + result.message, "error");
-    return;
+  // 公开模式使用公开下载端点
+  let url;
+  if (isPublicStorageMode) {
+    url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
+  } else {
+    const result = await fileManager.getPreviewUrl(path);
+    if (!result.success) {
+      showToast("获取文件失败：" + result.message, "error");
+      return;
+    }
+    url = result.url;
   }
-
-  const url = result.url;
 
   // 显示加载进度条
   previewContent.innerHTML = `
@@ -1133,7 +1310,14 @@ function downloadFromPreview() {
  * @param {string} path - 路径
  */
 async function downloadFile(path) {
-  await fileManager.downloadFile(path);
+  if (isPublicStorageMode) {
+    // 公开模式使用公开下载端点
+    const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
+    window.open(url, "_blank");
+    showToast("下载已开始", "success");
+  } else {
+    await fileManager.downloadFile(path);
+  }
 }
 
 // ==================== 上传 ====================
@@ -1144,6 +1328,11 @@ async function downloadFile(path) {
  */
 async function handleUploadFiles(files) {
   if (!files || files.length === 0) return;
+
+  if (isPublicStorageMode) {
+    showToast("公开存储模式下不支持上传文件", "error");
+    return;
+  }
 
   uploadManager.setCurrentPath(fileManager.currentPath);
 
@@ -1555,7 +1744,18 @@ async function copyPath(path) {
  * @param {string} path - 路径
  */
 async function copyShareUrl(path) {
-  await fileManager.copyShareUrl(path);
+  if (isPublicStorageMode) {
+    // 公开模式使用公开下载端点
+    const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
+    const success = await copyToClipboard(url);
+    if (success) {
+      showToast("分享链接已复制到剪贴板", "success");
+    } else {
+      showToast("复制失败", "error");
+    }
+  } else {
+    await fileManager.copyShareUrl(path);
+  }
   hideContextMenu();
 }
 

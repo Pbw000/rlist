@@ -4,11 +4,39 @@
 
 // 全局变量
 let currentPage = "users";
+let sidebarOpen = false;
 
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
   checkAuthAndLoad();
   initTheme();
+});
+
+/**
+ * 切换侧边栏（移动端）
+ */
+function toggleSidebar() {
+  const sidebar = document.querySelector(".admin-sidebar");
+  sidebarOpen = !sidebarOpen;
+  if (sidebarOpen) {
+    sidebar.classList.add("mobile-open");
+  } else {
+    sidebar.classList.remove("mobile-open");
+  }
+}
+
+// 点击遮罩关闭侧边栏
+document.addEventListener("click", (e) => {
+  const sidebar = document.querySelector(".admin-sidebar");
+  const menuToggle = document.querySelector(".menu-toggle");
+  if (
+    sidebarOpen &&
+    !sidebar.contains(e.target) &&
+    !menuToggle.contains(e.target)
+  ) {
+    sidebarOpen = false;
+    sidebar.classList.remove("mobile-open");
+  }
 });
 
 /**

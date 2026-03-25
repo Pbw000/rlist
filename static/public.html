@@ -14,19 +14,38 @@
             rel="stylesheet"
             href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"
         />
-        <link rel="stylesheet" href="/css/style.css" />
-        <link rel="stylesheet" href="/css/public.css" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="/css/style.css?v=20260325010" />
+        <link rel="stylesheet" href="/css/public.css?v=20260325010" />
     </head>
     <body>
         <div class="container">
-            <!-- Header -->
-            <div class="header">
-                <div class="header-left">
-                    <h1><i class="ti ti-folder"></i> RList</h1>
+            <!-- 顶部导航栏 -->
+            <header class="navbar public-navbar">
+                <div class="navbar-left">
+                    <div class="logo">
+                        <div class="logo-icon-small">
+                            <i class="ti ti-folder"></i>
+                        </div>
+                        <span class="logo-text">RList</span>
+                    </div>
                     <div class="breadcrumb" id="breadcrumb">
-                        <a href="#" onclick="navigateTo('/')"
-                            ><i class="ti ti-home"></i
-                        ></a>
+                        <span class="breadcrumb-separator"
+                            ><i class="ti ti-chevron-right"></i
+                        ></span>
+                        <a
+                            href="#"
+                            onclick="navigateTo('/')"
+                            class="breadcrumb-item"
+                        >
+                            <i class="ti ti-home"></i>
+                            <span>首页</span>
+                        </a>
                     </div>
                     <div
                         class="storage-badge"
@@ -37,7 +56,7 @@
                         <span id="storageBadgeName"></span>
                     </div>
                 </div>
-                <div class="header-right">
+                <div class="navbar-right">
                     <div class="search-box">
                         <i class="ti ti-search"></i>
                         <input
@@ -46,61 +65,71 @@
                             placeholder="搜索文件..."
                         />
                     </div>
-                    <div
-                        class="theme-toggle"
-                        onclick="toggleTheme()"
-                        title="切换主题"
-                    >
-                        <i class="ti ti-moon" id="themeIcon"></i>
+                    <div class="navbar-actions">
+                        <a href="/index.html" class="btn btn-primary">
+                            <i class="ti ti-login"></i>
+                            <span>登录</span>
+                        </a>
+                        <button
+                            class="theme-toggle"
+                            onclick="toggleTheme()"
+                            title="切换主题"
+                        >
+                            <i class="ti ti-moon" id="themeIcon"></i>
+                        </button>
                     </div>
-                    <a href="/index.html" class="btn btn-secondary">
-                        <i class="ti ti-login"></i> 登录
-                    </a>
                 </div>
-            </div>
+            </header>
 
-            <!-- Toolbar -->
+            <!-- 工具栏 -->
             <div class="toolbar">
-                <button class="btn btn-primary" onclick="refresh()">
-                    <i class="ti ti-refresh"></i> 刷新
-                </button>
-                <div style="flex: 1"></div>
-                <div class="view-toggle">
-                    <button
-                        class="active"
-                        id="listViewBtn"
-                        onclick="setView('list')"
-                        title="列表视图"
-                    >
-                        <i class="ti ti-list"></i>
+                <div class="toolbar-left">
+                    <button class="btn btn-ghost" onclick="refresh()">
+                        <i class="ti ti-refresh"></i>
+                        <span>刷新</span>
                     </button>
-                    <button
-                        id="gridViewBtn"
-                        onclick="setView('grid')"
-                        title="网格视图"
-                    >
-                        <i class="ti ti-grid-dots"></i>
-                    </button>
+                </div>
+                <div class="toolbar-right">
+                    <div class="view-toggle">
+                        <button
+                            class="active"
+                            id="listViewBtn"
+                            onclick="setView('list')"
+                            title="列表视图"
+                        >
+                            <i class="ti ti-list"></i>
+                        </button>
+                        <button
+                            id="gridViewBtn"
+                            onclick="setView('grid')"
+                            title="网格视图"
+                        >
+                            <i class="ti ti-grid-dots"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            <!-- File List -->
-            <div class="file-list" id="fileList">
-                <div class="loading">
-                    <div class="spinner"></div>
+            <!-- 文件列表 -->
+            <div class="file-list-container">
+                <div class="file-list" id="fileList">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p class="loading-text">加载中...</p>
+                    </div>
                 </div>
             </div>
 
-            <!-- Footer -->
-            <div class="footer">
+            <!-- 页脚 -->
+            <footer class="footer">
                 <p>
-                    <i class="ti ti-folder-open"></i> 公开访问模式 -
-                    仅支持浏览和下载
+                    <i class="ti ti-folder-open"></i>
+                    <span>公开访问模式 - 仅支持浏览和下载</span>
                 </p>
-            </div>
+            </footer>
         </div>
 
-        <!-- Preview Modal -->
+        <!-- 预览模态框 -->
         <div class="modal-overlay" id="previewModal" style="display: none">
             <div class="modal preview-modal">
                 <div class="preview-header">
@@ -156,7 +185,7 @@
             </div>
         </div>
 
-        <!-- Context Menu -->
+        <!-- 右键菜单 -->
         <div class="context-menu" id="contextMenu" style="display: none"></div>
 
         <!-- JS 模块 -->
@@ -178,7 +207,7 @@
                 }
             });
         </script>
-        <script src="/js/utils.js?v=20260324001"></script>
-        <script src="/js/public.js?v=20260324001"></script>
+        <script src="/js/utils.js?v=20260325010"></script>
+        <script src="/js/public.js?v=20260325010"></script>
     </body>
 </html>

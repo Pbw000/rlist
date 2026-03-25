@@ -61,7 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
  * 初始化主题
  */
 function initTheme() {
-  const currentTheme = localStorage.getItem("rlist_public_theme") || "light";
+  const currentTheme = localStorage.getItem("rlist_theme") || "light";
   if (currentTheme === "dark") {
     document.documentElement.setAttribute("data-theme", "dark");
     const themeIcon = document.getElementById("themeIcon");
@@ -78,11 +78,11 @@ function toggleTheme() {
   if (isDark) {
     document.documentElement.removeAttribute("data-theme");
     if (themeIcon) themeIcon.className = "ti ti-moon";
-    localStorage.setItem("rlist_public_theme", "light");
+    localStorage.setItem("rlist_theme", "light");
   } else {
     document.documentElement.setAttribute("data-theme", "dark");
     if (themeIcon) themeIcon.className = "ti ti-sun";
-    localStorage.setItem("rlist_public_theme", "dark");
+    localStorage.setItem("rlist_theme", "dark");
   }
 }
 
@@ -92,7 +92,7 @@ function toggleTheme() {
  */
 function setView(view) {
   currentView = view;
-  localStorage.setItem("rlist_public_view", view);
+  localStorage.setItem("rlist_view", view);
   const fileList = document.getElementById("fileList");
   const listBtn = document.getElementById("listViewBtn");
   const gridBtn = document.getElementById("gridViewBtn");

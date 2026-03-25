@@ -14,14 +14,24 @@
             rel="stylesheet"
             href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"
         />
-        <link rel="stylesheet" href="/css/style.css?v=20260325009" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="/css/style.css?v=20260325010" />
     </head>
     <body>
         <!-- 登录/注册模态框 -->
         <div class="auth-container" id="authContainer">
             <div class="auth-card">
                 <div class="auth-header">
-                    <i class="ti ti-folder"></i>
+                    <div class="logo-wrapper">
+                        <div class="logo-icon">
+                            <i class="ti ti-folder"></i>
+                        </div>
+                    </div>
                     <h1>RList</h1>
                     <p>文件管理系统</p>
                 </div>
@@ -55,17 +65,30 @@
         </div>
 
         <div class="container" id="mainContainer" style="display: none">
-            <!-- Header -->
-            <div class="header">
-                <div class="header-left">
-                    <h1><i class="ti ti-folder"></i> RList</h1>
+            <!-- 顶部导航栏 -->
+            <header class="navbar">
+                <div class="navbar-left">
+                    <div class="logo">
+                        <div class="logo-icon-small">
+                            <i class="ti ti-folder"></i>
+                        </div>
+                        <span class="logo-text">RList</span>
+                    </div>
                     <div class="breadcrumb" id="breadcrumb">
-                        <a href="#" onclick="navigateTo('/')"
-                            ><i class="ti ti-home"></i
-                        ></a>
+                        <span class="breadcrumb-separator"
+                            ><i class="ti ti-chevron-right"></i
+                        ></span>
+                        <a
+                            href="#"
+                            onclick="navigateTo('/')"
+                            class="breadcrumb-item"
+                        >
+                            <i class="ti ti-home"></i>
+                            <span>首页</span>
+                        </a>
                     </div>
                 </div>
-                <div class="header-right">
+                <div class="navbar-right">
                     <div class="search-box">
                         <i class="ti ti-search"></i>
                         <input
@@ -74,110 +97,160 @@
                             placeholder="搜索文件..."
                         />
                     </div>
-                    <div class="user-info" id="userInfo" style="display: none">
-                        <i class="ti ti-user-circle"></i>
-                        <span id="usernameDisplay"></span>
-                        <button
-                            class="btn btn-secondary btn-icon"
-                            onclick="logout()"
-                            title="退出登录"
+                    <div class="navbar-actions">
+                        <div
+                            class="storage-switch"
+                            id="storageSwitch"
+                            style="display: none"
                         >
-                            <i class="ti ti-logout"></i>
+                            <span class="storage-switch-label">私有</span>
+                            <label class="switch">
+                                <input
+                                    type="checkbox"
+                                    id="storageSwitchToggle"
+                                    onchange="toggleStorageMode(this.checked)"
+                                />
+                                <span class="slider"></span>
+                            </label>
+                            <span class="storage-switch-label">公开</span>
+                        </div>
+                        <div
+                            class="user-info"
+                            id="userInfo"
+                            style="display: none"
+                        >
+                            <div class="avatar">
+                                <i class="ti ti-user-circle"></i>
+                            </div>
+                            <span id="usernameDisplay"></span>
+                            <button
+                                class="btn-icon"
+                                onclick="logout()"
+                                title="退出登录"
+                            >
+                                <i class="ti ti-logout"></i>
+                            </button>
+                        </div>
+                        <button
+                            class="theme-toggle"
+                            onclick="toggleTheme()"
+                            title="切换主题"
+                        >
+                            <i class="ti ti-moon" id="themeIcon"></i>
                         </button>
                     </div>
-                    <button
-                        class="theme-toggle"
-                        onclick="toggleTheme()"
-                        title="切换主题"
-                    >
-                        <i class="ti ti-moon" id="themeIcon"></i>
-                    </button>
                 </div>
-            </div>
+            </header>
 
-            <!-- Toolbar -->
+            <!-- 工具栏 -->
             <div class="toolbar">
-                <button class="btn btn-primary" onclick="showNewFolderModal()">
-                    <i class="ti ti-folder-plus"></i> 新建文件夹
-                </button>
-                <button
-                    class="btn btn-primary"
-                    onclick="document.getElementById('uploadInput').click()"
-                >
-                    <i class="ti ti-upload"></i> 上传文件
-                </button>
-                <input
-                    type="file"
-                    id="uploadInput"
-                    style="display: none"
-                    multiple
-                    onchange="handleUploadFiles(this.files)"
-                />
-                <button class="btn btn-secondary" onclick="refresh()">
-                    <i class="ti ti-refresh"></i> 刷新
-                </button>
-                <button
-                    class="btn btn-danger"
-                    id="deleteBtn"
-                    style="display: none"
-                    onclick="deleteSelected()"
-                >
-                    <i class="ti ti-trash"></i> 删除选中
-                </button>
-                <button
-                    class="btn btn-secondary"
-                    id="adminBtn"
-                    onclick="openAdminPanel()"
-                    title="管理后台"
-                >
-                    <i class="ti ti-settings"></i> 管理
-                </button>
-                <button
-                    class="btn btn-secondary"
-                    id="publicStorageBtn"
-                    onclick="showPublicStorage()"
-                    title="公开存储"
-                >
-                    <i class="ti ti-world"></i> 公开存储
-                </button>
-                <div style="flex: 1"></div>
-                <div class="view-toggle">
+                <div class="toolbar-left">
                     <button
-                        class="active"
-                        id="listViewBtn"
-                        onclick="setView('list')"
-                        title="列表视图"
+                        class="btn btn-primary"
+                        onclick="showNewFolderModal()"
                     >
-                        <i class="ti ti-list"></i>
+                        <i class="ti ti-folder-plus"></i>
+                        <span>新建文件夹</span>
                     </button>
                     <button
-                        id="gridViewBtn"
-                        onclick="setView('grid')"
-                        title="网格视图"
+                        class="btn btn-secondary"
+                        onclick="document.getElementById('uploadInput').click()"
                     >
-                        <i class="ti ti-grid-dots"></i>
+                        <i class="ti ti-upload"></i>
+                        <span>上传文件</span>
                     </button>
+                    <input
+                        type="file"
+                        id="uploadInput"
+                        style="display: none"
+                        multiple
+                        onchange="handleUploadFiles(this.files)"
+                    />
+                    <button class="btn btn-ghost" onclick="refresh()">
+                        <i class="ti ti-refresh"></i>
+                        <span>刷新</span>
+                    </button>
+                </div>
+                <div class="toolbar-right">
+                    <button
+                        class="btn btn-danger"
+                        id="deleteBtn"
+                        style="display: none"
+                        onclick="deleteSelected()"
+                    >
+                        <i class="ti ti-trash"></i>
+                        <span>删除选中</span>
+                    </button>
+                    <div class="toolbar-divider"></div>
+                    <button
+                        class="btn btn-ghost"
+                        id="adminBtn"
+                        onclick="openAdminPanel()"
+                        title="管理后台"
+                    >
+                        <i class="ti ti-settings"></i>
+                    </button>
+                    <button
+                        class="btn btn-ghost"
+                        id="publicStorageBtn"
+                        onclick="showPublicStorage()"
+                        title="公开存储"
+                    >
+                        <i class="ti ti-world"></i>
+                    </button>
+                    <div class="view-toggle">
+                        <button
+                            class="active"
+                            id="listViewBtn"
+                            onclick="setView('list')"
+                            title="列表视图"
+                        >
+                            <i class="ti ti-list"></i>
+                        </button>
+                        <button
+                            id="gridViewBtn"
+                            onclick="setView('grid')"
+                            title="网格视图"
+                        >
+                            <i class="ti ti-grid-dots"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            <!-- File List -->
-            <div class="file-list" id="fileList">
-                <div class="loading">
-                    <div class="spinner"></div>
+            <!-- 文件列表 -->
+            <div class="file-list-container">
+                <div class="file-list" id="fileList">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p class="loading-text">加载中...</p>
+                    </div>
                 </div>
             </div>
+
+            <!-- 页脚 -->
+            <footer class="footer">
+                <p>RList 文件管理系统 &copy; <span id="currentYear"></span></p>
+            </footer>
         </div>
 
-        <!-- New Folder Modal -->
+        <!-- 新建文件夹模态框 -->
         <div class="modal-overlay" id="newFolderModal" style="display: none">
             <div class="modal">
-                <h2><i class="ti ti-folder-plus"></i> 新建文件夹</h2>
-                <input
-                    type="text"
-                    id="folderNameInput"
-                    placeholder="文件夹名称"
-                />
-                <div class="modal-actions">
+                <div class="modal-header">
+                    <h2><i class="ti ti-folder-plus"></i> 新建文件夹</h2>
+                    <button class="modal-close" onclick="hideNewFolderModal()">
+                        <i class="ti ti-x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <input
+                        type="text"
+                        id="folderNameInput"
+                        placeholder="请输入文件夹名称"
+                    />
+                </div>
+                <div class="modal-footer">
                     <button
                         class="btn btn-secondary"
                         onclick="hideNewFolderModal()"
@@ -191,12 +264,23 @@
             </div>
         </div>
 
-        <!-- Rename Modal -->
+        <!-- 重命名模态框 -->
         <div class="modal-overlay" id="renameModal" style="display: none">
             <div class="modal">
-                <h2><i class="ti ti-edit"></i> 重命名</h2>
-                <input type="text" id="renameInput" placeholder="新名称" />
-                <div class="modal-actions">
+                <div class="modal-header">
+                    <h2><i class="ti ti-edit"></i> 重命名</h2>
+                    <button class="modal-close" onclick="hideRenameModal()">
+                        <i class="ti ti-x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <input
+                        type="text"
+                        id="renameInput"
+                        placeholder="请输入新名称"
+                    />
+                </div>
+                <div class="modal-footer">
                     <button
                         class="btn btn-secondary"
                         onclick="hideRenameModal()"
@@ -210,7 +294,7 @@
             </div>
         </div>
 
-        <!-- Delete Confirm Modal -->
+        <!-- 删除确认模态框 -->
         <div
             class="modal-overlay"
             id="deleteConfirmModal"
@@ -228,7 +312,7 @@
                 <p class="delete-warning">
                     <i class="ti ti-info-circle"></i> 此操作不可恢复
                 </p>
-                <div class="modal-actions">
+                <div class="modal-footer">
                     <button
                         class="btn btn-secondary"
                         onclick="hideDeleteConfirmModal()"
@@ -246,7 +330,7 @@
             </div>
         </div>
 
-        <!-- Preview Modal -->
+        <!-- 预览模态框 -->
         <div class="modal-overlay" id="previewModal" style="display: none">
             <div class="modal preview-modal">
                 <div class="preview-header">
@@ -302,35 +386,35 @@
             </div>
         </div>
 
-        <!-- Copy/Move Modal -->
+        <!-- 复制/移动模态框 -->
         <div class="modal-overlay" id="copyMoveModal" style="display: none">
             <div class="modal">
-                <h2 id="copyMoveTitle">
-                    <i class="ti ti-copy"></i> 复制/移动文件
-                </h2>
-                <input
-                    type="text"
-                    id="targetPathInput"
-                    placeholder="目标路径"
-                    readonly
-                    onclick="showPathSelector()"
-                    style="cursor: pointer"
-                />
-                <div
-                    id="pathSelectorStatus"
-                    style="
-                        font-size: 12px;
-                        color: var(--text-secondary);
-                        margin-bottom: 8px;
-                    "
-                >
-                    点击输入框选择路径
+                <div class="modal-header">
+                    <h2 id="copyMoveTitle">
+                        <i class="ti ti-copy"></i> 复制/移动文件
+                    </h2>
+                    <button class="modal-close" onclick="hideCopyMoveModal()">
+                        <i class="ti ti-x"></i>
+                    </button>
                 </div>
-                <select id="copyMoveType">
-                    <option value="copy">复制</option>
-                    <option value="move">移动</option>
-                </select>
-                <div class="modal-actions">
+                <div class="modal-body">
+                    <input
+                        type="text"
+                        id="targetPathInput"
+                        placeholder="目标路径"
+                        readonly
+                        onclick="showPathSelector()"
+                        style="cursor: pointer"
+                    />
+                    <div id="pathSelectorStatus" class="path-selector-status">
+                        <i class="ti ti-info-circle"></i> 点击输入框选择路径
+                    </div>
+                    <select id="copyMoveType">
+                        <option value="copy">复制</option>
+                        <option value="move">移动</option>
+                    </select>
+                </div>
+                <div class="modal-footer">
                     <button
                         class="btn btn-secondary"
                         onclick="hideCopyMoveModal()"
@@ -344,7 +428,7 @@
             </div>
         </div>
 
-        <!-- Path Selector Modal -->
+        <!-- 路径选择器模态框 -->
         <div
             class="modal-overlay"
             id="pathSelectorModal"
@@ -356,11 +440,18 @@
                 style="max-width: 500px"
                 onclick="event.stopPropagation()"
             >
-                <h2><i class="ti ti-folder"></i> 选择目标路径</h2>
-                <div id="pathSelectorContent">
-                    <div class="loading"><div class="spinner"></div></div>
+                <div class="modal-header">
+                    <h2><i class="ti ti-folder"></i> 选择目标路径</h2>
+                    <button class="modal-close" onclick="hidePathSelector()">
+                        <i class="ti ti-x"></i>
+                    </button>
                 </div>
-                <div class="modal-actions">
+                <div class="modal-body">
+                    <div id="pathSelectorContent">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
                     <button
                         class="btn btn-secondary"
                         onclick="hidePathSelector()"
@@ -377,55 +468,59 @@
             </div>
         </div>
 
-        <!-- Upload Progress Modal -->
+        <!-- 上传进度模态框 -->
         <div
             class="modal-overlay"
             id="uploadProgressModal"
             style="display: none"
         >
             <div class="modal">
-                <h2><i class="ti ti-upload"></i> 上传进度</h2>
-                <div
-                    id="uploadProgressContent"
-                    style="max-height: 300px; overflow-y: auto"
-                ></div>
-                <div class="modal-actions">
+                <div class="modal-header">
+                    <h2><i class="ti ti-upload"></i> 上传进度</h2>
                     <button
-                        class="btn btn-primary"
+                        class="modal-close"
                         onclick="hideUploadProgressModal()"
                     >
-                        关闭
+                        <i class="ti ti-x"></i>
                     </button>
+                </div>
+                <div class="modal-body">
+                    <div
+                        id="uploadProgressContent"
+                        class="upload-progress-content"
+                    ></div>
                 </div>
             </div>
         </div>
 
-        <!-- Public Storage Modal -->
+        <!-- 公开存储模态框 -->
         <div
             class="modal-overlay"
             id="publicStorageModal"
             style="display: none"
         >
             <div class="modal">
-                <h2><i class="ti ti-world"></i> 公开存储</h2>
-                <div
-                    id="publicStorageContent"
-                    style="max-height: 300px; overflow-y: auto"
-                >
-                    <div class="loading"><div class="spinner"></div></div>
-                </div>
-                <div class="modal-actions">
+                <div class="modal-header">
+                    <h2><i class="ti ti-world"></i> 公开存储</h2>
                     <button
-                        class="btn btn-secondary"
+                        class="modal-close"
                         onclick="hidePublicStorageModal()"
                     >
-                        关闭
+                        <i class="ti ti-x"></i>
                     </button>
+                </div>
+                <div class="modal-body">
+                    <div
+                        id="publicStorageContent"
+                        class="public-storage-content"
+                    >
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Context Menu -->
+        <!-- 右键菜单 -->
         <div class="context-menu" id="contextMenu" style="display: none"></div>
 
         <!-- JS 模块 -->
@@ -439,7 +534,10 @@
                 pdfjsLib.GlobalWorkerOptions.workerSrc =
                     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
             }
-            // 后台预加载 PDF.js
+            // 设置当前年份
+            document.getElementById("currentYear").textContent =
+                new Date().getFullYear();
+            // 后台预加载 PDF.js worker
             window.addEventListener("load", () => {
                 // 预加载 PDF.js worker
                 if (typeof pdfjsLib !== "undefined") {
@@ -447,10 +545,10 @@
                 }
             });
         </script>
-        <script src="/js/utils.js?v=20260325009"></script>
-        <script src="/js/api.js?v=20260325009"></script>
-        <script src="/js/file-manager.js?v=20260325009"></script>
-        <script src="/js/upload.js?v=20260325009"></script>
-        <script src="/js/app.js?v=20260325009"></script>
+        <script src="/js/utils.js?v=20260325010"></script>
+        <script src="/js/api.js?v=20260325010"></script>
+        <script src="/js/file-manager.js?v=20260325010"></script>
+        <script src="/js/upload.js?v=20260325010"></script>
+        <script src="/js/app.js?v=20260325010"></script>
     </body>
 </html>
