@@ -288,10 +288,7 @@ pub async fn copy(
 ) -> impl IntoResponse {
     let registry_guard = state.inner.registry.read().await;
 
-    match registry_guard
-        .copy_end_to_end(&req.src_path, &req.dst_path)
-        .await
-    {
+    match registry_guard.copy(&req.src_path, &req.dst_path).await {
         Ok(_) => {
             ApiResponse::success(serde_json::json!({"src": req.src_path, "dst": req.dst_path}))
         }
@@ -306,10 +303,7 @@ pub async fn move_file(
 ) -> impl IntoResponse {
     let registry_guard = state.inner.registry.read().await;
 
-    match registry_guard
-        .move_end_to_end(&req.src_path, &req.dst_path)
-        .await
-    {
+    match registry_guard.move_file(&req.src_path, &req.dst_path).await {
         Ok(_) => {
             ApiResponse::success(serde_json::json!({"src": req.src_path, "dst": req.dst_path}))
         }

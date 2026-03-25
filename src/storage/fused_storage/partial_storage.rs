@@ -52,6 +52,9 @@ impl<T: Storage> PartialStorage<T> {
 
 impl<T: Storage> Storage for PartialStorage<T> {
     type Error = T::Error;
+    type End2EndCopyMeta = T::End2EndCopyMeta;
+    type End2EndMoveMeta = T::End2EndMoveMeta;
+
     fn hash(&self) -> u64 {
         self.inner.hash()
     }
@@ -128,7 +131,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
 
     async fn copy_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
     ) -> Result<FileMeta, Self::Error> {
         if self.read_only {
@@ -137,13 +140,17 @@ impl<T: Storage> Storage for PartialStorage<T> {
             ));
         }
         self.inner
-            .copy_end_to_end(&self.handle_path(source_path), &self.handle_path(dest_path))
+            .copy_end_to_end(source_meta, &self.handle_path(dest_path))
             .await
+    }
+
+    async fn gen_copy_meta(&self, path: &str) -> Result<Self::End2EndCopyMeta, Self::Error> {
+        self.inner.gen_copy_meta(&self.handle_path(path)).await
     }
 
     async fn move_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
     ) -> Result<FileMeta, Self::Error> {
         if self.read_only {
@@ -152,8 +159,12 @@ impl<T: Storage> Storage for PartialStorage<T> {
             ));
         }
         self.inner
-            .move_end_to_end(&self.handle_path(source_path), &self.handle_path(dest_path))
+            .move_end_to_end(source_meta, &self.handle_path(dest_path))
             .await
+    }
+
+    async fn gen_move_meta(&self, path: &str) -> Result<Self::End2EndMoveMeta, Self::Error> {
+        self.inner.gen_move_meta(&self.handle_path(path)).await
     }
 
     async fn get_upload_info(&self, params: UploadInfoParams) -> Result<UploadInfo, Self::Error> {

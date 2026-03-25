@@ -48,8 +48,25 @@ impl<T: Storage> Default for FusedStorage<T> {
     }
 }
 
+impl<T: Storage + 'static> FusedStorage<T> {
+    /// 便捷的复制方法：从源路径复制到目标路径
+    pub async fn copy(&self, src_path: &str, dest_path: &str) -> Result<Meta, RlistError> {
+        let source_meta = self.gen_copy_meta(src_path).await?;
+        self.copy_end_to_end(source_meta, dest_path).await
+    }
+
+    /// 便捷的移动方法：从源路径移动到目标路径
+    pub async fn move_file(&self, src_path: &str, dest_path: &str) -> Result<Meta, RlistError> {
+        let source_meta = self.gen_move_meta(src_path).await?;
+        self.move_end_to_end(source_meta, dest_path).await
+    }
+}
+
 impl<T: Storage + 'static> Storage for FusedStorage<T> {
     type Error = RlistError;
+    type End2EndCopyMeta = T::End2EndCopyMeta;
+    type End2EndMoveMeta = T::End2EndMoveMeta;
+
     fn hash(&self) -> u64 {
         use std::hash::Hasher;
         let hasher = std::collections::hash_map::DefaultHasher::new();
@@ -222,45 +239,68 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
 
     async fn copy_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
     ) -> Result<Meta, Self::Error> {
-        let (src_drive, src_path) =
-            self.get_driver(source_path)
-                .ok_or(RlistError::Storage(StorageError::NotFound(
-                    "Source storage not found!".to_owned(),
-                )))?;
-        let (dest_drive, dst_path) =
+        // 获取目标驱动和路径
+        let (dest_drive, dest_remaining_path) =
             self.get_driver(dest_path)
                 .ok_or(RlistError::Storage(StorageError::NotFound(
                     "Dest storage not found!".to_owned(),
                 )))?;
-        if src_drive.hash() == dest_drive.hash() {
-            src_drive
-                .copy_end_to_end(src_path, dst_path)
-                .await
-                .map_err(|e| e.into())
-        } else {
-            Err(RlistError::Storage(StorageError::OperationFailed(
-                "Cannot copy between different storage drivers".to_string(),
-            )))
-        }
+
+        // 使用目标驱动来执行复制操作
+        // 目标驱动会验证 meta 类型是否匹配
+        dest_drive
+            .copy_end_to_end(source_meta, dest_remaining_path)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn gen_copy_meta(&self, path: &str) -> Result<Self::End2EndCopyMeta, Self::Error> {
+        let (driver, remaining_path) =
+            self.get_driver(path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Driver not found".to_string(),
+                )))?;
+        // 使用源驱动生成 meta
+        driver
+            .gen_copy_meta(remaining_path)
+            .await
+            .map_err(|e| e.into())
     }
 
     async fn move_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
     ) -> Result<Meta, Self::Error> {
-        match self.get_driver(source_path) {
-            Some((driver, remaining_source)) => driver
-                .move_end_to_end(remaining_source, dest_path)
-                .await
-                .map_err(|e| e.into()),
-            None => Err(RlistError::Storage(StorageError::NotFound(
-                "路径未找到".to_string(),
-            ))),
-        }
+        // 获取目标驱动和路径
+        let (dest_drive, dest_remaining_path) =
+            self.get_driver(dest_path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Dest storage not found!".to_owned(),
+                )))?;
+
+        // 使用目标驱动来执行移动操作
+        // 目标驱动会验证 meta 类型是否匹配
+        dest_drive
+            .move_end_to_end(source_meta, dest_remaining_path)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn gen_move_meta(&self, path: &str) -> Result<Self::End2EndMoveMeta, Self::Error> {
+        let (driver, remaining_path) =
+            self.get_driver(path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Driver not found".to_string(),
+                )))?;
+        // 使用源驱动生成 meta
+        driver
+            .gen_move_meta(remaining_path)
+            .await
+            .map_err(|e| e.into())
     }
 
     async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(

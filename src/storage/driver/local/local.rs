@@ -1,5 +1,5 @@
 use crate::error::StorageError;
-use crate::storage::file_meta::DownloadableMeta;
+use crate::storage::file_meta::{DownloadableMeta, Meta};
 use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
 use ring::digest::{Context, SHA256};
 use std::future::Future;
@@ -111,6 +111,8 @@ impl FileContent for LocalFileReader {
 
 impl Storage for LocalStorage {
     type Error = StorageError;
+    type End2EndCopyMeta = FileMeta;
+    type End2EndMoveMeta = FileMeta;
 
     fn name(&self) -> &str {
         "本地存储"
@@ -120,9 +122,6 @@ impl Storage for LocalStorage {
         "local"
     }
 
-    fn is_readonly(&self) -> bool {
-        false
-    }
     fn hash(&self) -> u64 {
         use std::hash::Hasher;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -272,11 +271,13 @@ impl Storage for LocalStorage {
 
     fn copy_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Meta,
         dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
         async move {
-            let source = self.normalize_path(source_path)?;
+            // source_meta 包含文件名，但 LocalStorage 需要完整路径
+            // 这里假设 meta 的名称字段就是相对于 root 的路径
+            let source = self.normalize_path(source_meta.name())?;
             let dest = self.normalize_path(dest_path)?;
 
             if source.is_dir() {
@@ -291,19 +292,33 @@ impl Storage for LocalStorage {
         }
     }
 
+    fn gen_copy_meta(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = Result<Self::End2EndCopyMeta, Self::Error>> + Send {
+        async move { self.get_meta(path).await }
+    }
+
     fn move_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Meta,
         dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
         async move {
-            let source = self.normalize_path(source_path)?;
+            let source = self.normalize_path(source_meta.name())?;
             let dest = self.normalize_path(dest_path)?;
 
             std::fs::rename(&source, &dest)
                 .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             self.meta_from_path(&dest)
         }
+    }
+
+    fn gen_move_meta(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = Result<Self::End2EndMoveMeta, Self::Error>> + Send {
+        async move { self.get_meta(path).await }
     }
 
     fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(

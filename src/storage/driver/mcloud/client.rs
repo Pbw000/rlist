@@ -73,6 +73,9 @@ impl PartialEq for McloudStorage {
 impl Eq for McloudStorage {}
 impl Storage for McloudStorage {
     type Error = McloudError;
+    type End2EndCopyMeta = String; // 使用 file_id 作为复制元数据
+    type End2EndMoveMeta = String; // 使用 file_id 作为移动元数据
+
     fn hash(&self) -> u64 {
         use std::hash::Hasher;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -299,15 +302,11 @@ impl Storage for McloudStorage {
 
     fn copy_end_to_end(
         &self,
-        source_path: &str,
+        source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
         async move {
-            let source_id = if let Some(id) = self.get_file_id_by_path(source_path).await {
-                id
-            } else {
-                source_path.to_string()
-            };
+            let source_id = source_meta; // source_meta 就是 file_id
 
             let dest_id = if let Some(id) = self.get_file_id_by_path(dest_path).await {
                 id
@@ -324,13 +323,54 @@ impl Storage for McloudStorage {
         }
     }
 
+    fn gen_copy_meta(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = Result<Self::End2EndCopyMeta, Self::Error>> + Send {
+        async move {
+            let file_id = self
+                .get_file_id_by_path(path)
+                .await
+                .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
+            Ok(file_id)
+        }
+    }
+
     fn move_end_to_end(
         &self,
-        _source_path: &str,
-        _dest_path: &str,
+        source_meta: Self::End2EndMoveMeta,
+        dest_path: &str,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
-        // TODO: 实现移动操作（需要先复制再删除）
-        async move { Err(McloudError::ApiError("移动操作暂未实现".to_string())) }
+        async move {
+            let source_id = source_meta; // source_meta 就是 file_id
+
+            let dest_id = if let Some(id) = self.get_file_id_by_path(dest_path).await {
+                id
+            } else {
+                "root".to_string()
+            };
+
+            // 移动操作：先复制再删除
+            let source_id_clone = source_id.clone();
+            self.copy_file(vec![source_id], &dest_id).await?;
+            self.delete_file(vec![source_id_clone]).await?;
+
+            let meta = self.get_file_meta_by_path(&dest_id).await?;
+            Ok(meta.to_meta())
+        }
+    }
+
+    fn gen_move_meta(
+        &self,
+        path: &str,
+    ) -> impl Future<Output = Result<Self::End2EndMoveMeta, Self::Error>> + Send {
+        async move {
+            let file_id = self
+                .get_file_id_by_path(path)
+                .await
+                .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
+            Ok(file_id)
+        }
     }
 
     async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(

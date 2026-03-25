@@ -44,6 +44,13 @@ impl Meta {
         }
     }
 
+    /// 获取名称
+    pub fn name(&self) -> &str {
+        match self {
+            Meta::File { name, .. } | Meta::Directory { name, .. } => name,
+        }
+    }
+
     /// 判断是否为文件
     pub fn is_file(&self) -> bool {
         matches!(self, Meta::File { .. })
