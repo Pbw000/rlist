@@ -23,12 +23,14 @@ macro_rules! impl_storage_enum {
 
             // 生成 End2EndCopyMeta 枚举 - extension 包装器与原有类型使用相同的 Meta
             #[allow(non_camel_case_types)]
+            #[derive(Debug)]
             pub enum [<$enum_name End2EndCopyMeta>] {
                 $($variant(<$ty as $crate::Storage>::End2EndCopyMeta),)+
             }
 
             // 生成 End2EndMoveMeta 枚举
             #[allow(non_camel_case_types)]
+            #[derive(Debug)]
             pub enum [<$enum_name End2EndMoveMeta>] {
                 $($variant(<$ty as $crate::Storage>::End2EndMoveMeta),)+
             }
@@ -206,7 +208,7 @@ macro_rules! impl_storage_enum {
                     }
                 }
 
-                async fn copy_end_to_end(&self, source_meta: Self::End2EndCopyMeta, dest_path: &str) -> Result<$crate::FileMeta, Self::Error> {
+                async fn copy_end_to_end(&self, source_meta: Self::End2EndCopyMeta, dest_path: &str) -> Result<(), Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {
                             let [<$enum_name End2EndCopyMeta>]::$variant(meta) = source_meta else {
@@ -248,7 +250,7 @@ macro_rules! impl_storage_enum {
                     }
                 }
 
-                async fn move_end_to_end(&self, source_meta: Self::End2EndMoveMeta, dest_path: &str) -> Result<$crate::FileMeta, Self::Error> {
+                async fn move_end_to_end(&self, source_meta: Self::End2EndMoveMeta, dest_path: &str) -> Result<(), Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {
                             let [<$enum_name End2EndMoveMeta>]::$variant(meta) = source_meta else {
@@ -522,7 +524,7 @@ macro_rules! impl_storage_enum {
                 }
             }
 
-            async fn copy_end_to_end(&self, source_meta: Self::End2EndCopyMeta, dest_path: &str) -> Result<$crate::FileMeta, Self::Error> {
+            async fn copy_end_to_end(&self, source_meta: Self::End2EndCopyMeta, dest_path: &str) -> Result<(), Self::Error> {
                 match self {
                     $($enum_name::$variant(driver) => {
                         let [<$enum_name End2EndCopyMeta>]::$variant(meta) = source_meta else {
@@ -548,7 +550,7 @@ macro_rules! impl_storage_enum {
                 }
             }
 
-            async fn move_end_to_end(&self, source_meta: Self::End2EndMoveMeta, dest_path: &str) -> Result<$crate::FileMeta, Self::Error> {
+            async fn move_end_to_end(&self, source_meta: Self::End2EndMoveMeta, dest_path: &str) -> Result<(), Self::Error> {
                 match self {
                     $($enum_name::$variant(driver) => {
                         let [<$enum_name End2EndMoveMeta>]::$variant(meta) = source_meta else {

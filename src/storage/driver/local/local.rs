@@ -273,7 +273,7 @@ impl Storage for LocalStorage {
         &self,
         source_meta: Meta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async move {
             // source_meta 包含文件名，但 LocalStorage 需要完整路径
             // 这里假设 meta 的名称字段就是相对于 root 的路径
@@ -288,7 +288,7 @@ impl Storage for LocalStorage {
                     .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
             }
 
-            self.meta_from_path(&dest)
+            Ok(())
         }
     }
 
@@ -303,14 +303,14 @@ impl Storage for LocalStorage {
         &self,
         source_meta: Meta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async move {
             let source = self.normalize_path(source_meta.name())?;
             let dest = self.normalize_path(dest_path)?;
 
             std::fs::rename(&source, &dest)
                 .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-            self.meta_from_path(&dest)
+            Ok(())
         }
     }
 

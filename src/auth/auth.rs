@@ -43,8 +43,6 @@ impl AuthConfig {
             credentials_store: Arc::new(credentials_store),
         }
     }
-
-    /// 创建随机的 AuthConfig（使用现有数据库连接）
     pub async fn random(users: Vec<AuthInfo>, credentials_store: UserCredentialsStore) -> Self {
         use rand::Rng;
         let mut rng = rand::rng();

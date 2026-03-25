@@ -1,36 +1,98 @@
+use clap::Parser;
 use rlist::PartialStorage;
-use rlist::api::{ApiConfig, AppState, start_server};
+use rlist::api::{AppState, start_server};
 use rlist::auth::auth::AuthConfig;
 use rlist::auth::user_store::{UserCredentialsStore, UserPermissions};
 use rlist::storage::driver::local::local::LocalStorage;
+use rlist::utils::cli::{Cli, PasswdSubCommand, RlistSubcommand};
+use rlist::utils::password::generate_random_password;
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
-    let addr = "localhost:10000".to_owned();
-    let config = ApiConfig { addr: addr.clone() };
-
-    tracing::info!("API 配置：{:?}", config);
+    let cli = Cli::parse();
     let credentials_store = UserCredentialsStore::new("users.db").await?;
-    tracing::info!("用户凭证数据库已初始化");
-    if !credentials_store.exists("admin").await {
-        let random_password = generate_random_password();
-        if let Err(e) = credentials_store
-            .register("admin", &random_password, UserPermissions::admin())
-            .await
-        {
-            tracing::error!("Failed to create admin user: {:?}", e);
-            return Err(format!("Failed to create admin user: {:?}", e).into());
+
+    match cli.command {
+        Some(RlistSubcommand::Passwd(command)) => {
+            handle_passwd_command(&credentials_store, command).await?;
         }
-        println!("===========================================");
-        println!("Admin user created with random password:");
-        println!("Username: admin");
-        println!("Password: {}", random_password);
-        println!("===========================================");
-        tracing::info!("Admin user created with random password");
-    } else {
-        tracing::info!("Admin user already exists");
+        Some(RlistSubcommand::Run { port }) => {
+            run_server(port, credentials_store).await?;
+        }
+        None => {
+            // 没有指定命令时，默认运行服务器
+            run_server(10000, credentials_store).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// 处理密码管理命令
+async fn handle_passwd_command(
+    credentials_store: &UserCredentialsStore,
+    command: PasswdSubCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        PasswdSubCommand::Rst { user, new_password } => {
+            // 重置用户密码
+            if !credentials_store.exists(&user).await {
+                return Err(format!("User '{}' does not exist", user).into());
+            }
+
+            credentials_store
+                .update_password(&user, &new_password)
+                .await
+                .map_err(|e| format!("Failed to update password: {:?}", e))?;
+
+            println!("===========================================");
+            println!("Password reset successfully:");
+            println!("Username: {}", user);
+            println!("===========================================");
+            tracing::info!("Password reset for user: {}", user);
+        }
+        PasswdSubCommand::Random { user } => {
+            // 为用户生成随机密码
+            if !credentials_store.exists(&user).await {
+                return Err(format!("User '{}' does not exist", user).into());
+            }
+
+            let random_password = generate_random_password();
+            credentials_store
+                .update_password(&user, &random_password)
+                .await
+                .map_err(|e| format!("Failed to update password: {:?}", e))?;
+
+            println!("===========================================");
+            println!("Random password generated:");
+            println!("Username: {}", user);
+            println!("Password: {}", random_password);
+            println!("===========================================");
+            tracing::info!("Random password generated for user: {}", user);
+        }
+    }
+
+    Ok(())
+}
+
+/// 运行服务器
+async fn run_server(
+    port: u16,
+    credentials_store: UserCredentialsStore,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !credentials_store.exists("admin").await {
+        println!("Would you like to create an admin account? (y/n)");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input");
+        if input.trim().to_lowercase() == "y" {
+            create_admin_account(&credentials_store).await?;
+        } else {
+            return Err("Admin account creation was skipped".into());
+        }
     }
 
     // 创建认证配置
@@ -57,31 +119,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("已添加移动云盘存储：mcloud");
     state.build_cache("/").await?;
+
+    let addr = format!("0.0.0.0:{}", port);
+    tracing::info!("Starting server on {}", addr);
     start_server(state, &addr).await?;
 
     Ok(())
 }
 
-fn generate_random_password() -> String {
-    use rand::seq::{IteratorRandom, SliceRandom};
-
-    let mut rng = rand::rng();
-    let mut password = String::with_capacity(32);
-    let uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let lowercase = "abcdefghijklmnopqrstuvwxyz";
-    let digits = "0123456789";
-    let special = "!@#$%^&*()_+-=[]{}|;:,.<>?";
-    password.push(uppercase.chars().choose(&mut rng).unwrap());
-    password.push(lowercase.chars().choose(&mut rng).unwrap());
-    password.push(digits.chars().choose(&mut rng).unwrap());
-    password.push(special.chars().choose(&mut rng).unwrap());
-    let all = format!("{}{}{}{}", uppercase, lowercase, digits, special);
-    for _ in 0..28 {
-        password.push(all.chars().choose(&mut rng).unwrap());
+async fn create_admin_account(
+    credentials_store: &UserCredentialsStore,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let random_password = generate_random_password();
+    if let Err(e) = credentials_store
+        .register("admin", &random_password, UserPermissions::admin())
+        .await
+    {
+        tracing::error!("Failed to create admin user: {:?}", e);
+        return Err(format!("Failed to create admin user: {:?}", e).into());
     }
-
-    // 打乱密码顺序
-    let mut chars: Vec<char> = password.chars().collect();
-    chars.shuffle(&mut rng);
-    chars.into_iter().collect()
+    println!("===========================================");
+    println!("Admin user created with random password:");
+    println!("Username: admin");
+    println!("Password: {}", random_password);
+    println!("===========================================");
+    tracing::info!("Admin user created with random password");
+    Ok(())
 }

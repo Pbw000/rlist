@@ -421,6 +421,87 @@ impl UserCredentialsStore {
             None => Err((StatusCode::NOT_FOUND, "用户不存在".to_string())),
         }
     }
+
+    /// 更新用户密码
+    pub async fn update_password(
+        &self,
+        username: &str,
+        new_password: &str,
+    ) -> Result<(), (StatusCode, String)> {
+        // 验证密码强度
+        if new_password.len() < MIN_PASSWORD_LENGTH {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("密码长度至少为 {} 个字符", MIN_PASSWORD_LENGTH),
+            ));
+        }
+
+        // 检查用户是否存在
+        let exists: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("更新密码时数据库错误：{}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        if exists.is_none() {
+            return Err((StatusCode::NOT_FOUND, "用户不存在".to_string()));
+        }
+
+        // 获取现有的 salt
+        let salt_result: Option<(Vec<u8>,)> =
+            sqlx::query_as("SELECT salt FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("获取 salt 时数据库错误：{}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        let salt_bytes = match salt_result {
+            Some((salt,)) => salt,
+            None => {
+                return Err((StatusCode::NOT_FOUND, "用户不存在".to_string()));
+            }
+        };
+
+        let salt: [u8; SALT_LENGTH] = salt_bytes.try_into().map_err(|_| {
+            error!("用户 '{}' salt 格式错误", username);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "服务器内部错误".to_string(),
+            )
+        })?;
+
+        // 生成新的密码哈希
+        let password_hash = hash_password_sha512(new_password, username, &salt);
+
+        // 更新密码
+        sqlx::query("UPDATE user_credentials SET password_hash = ? WHERE username = ?")
+            .bind(&password_hash)
+            .bind(username)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                error!("更新用户 '{}' 密码时数据库错误：{}", username, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "服务器内部错误".to_string(),
+                )
+            })?;
+
+        Ok(())
+    }
 }
 
 fn hash_password_sha512(password: &str, username: &str, salt: &[u8]) -> String {

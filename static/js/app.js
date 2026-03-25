@@ -1211,11 +1211,21 @@ function hidePathSelector() {
 }
 
 /**
+ * 处理模态框背景点击
+ */
+function handleModalOverlayClick(event) {
+  if (event.target === event.currentTarget) {
+    hidePathSelector();
+  }
+}
+
+/**
  * 加载路径选择器
  * @param {string} path - 路径
  */
 async function loadPathSelector(path) {
   const content = document.getElementById("pathSelectorContent");
+  console.log("加载路径选择器，路径:", path);
   content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
@@ -1236,34 +1246,57 @@ async function loadPathSelector(path) {
     }
 
     const result = await response.json();
+    console.log("路径选择器 API 返回:", result);
 
     if (result.code === 200 && result.data) {
       const rawItems = result.data.items || [];
+      console.log("原始项目:", rawItems);
+
+      // 使用 Directory 属性判断是否为目录
       const dirs = rawItems
-        .filter((item) => item.File === undefined)
+        .filter((item) => item.Directory !== undefined)
         .map((item) => ({
-          name: item.Directory?.name || "unknown",
+          name: item.Directory.name || "unknown",
           path: path.endsWith("/")
-            ? path + (item.Directory?.name || "")
-            : path + "/" + (item.Directory?.name || ""),
+            ? path + (item.Directory.name || "")
+            : path + "/" + (item.Directory.name || ""),
         }));
+
+      console.log("目录列表:", dirs);
 
       const currentDirItem = {
         name: path === "/" ? "根目录" : path.split("/").pop() || "当前目录",
         path: path,
       };
 
-      content.innerHTML = `
-        <div class="file-item" onclick="selectPath('${escapeHtml(currentDirItem.path)}')" style="cursor: pointer; background: var(--selected-bg);">
-            <div class="file-main">
-                <div class="file-icon"><i class="ti ti-check"></i></div>
-                <div class="file-name">${escapeHtml(currentDirItem.name)} (当前)</div>
-            </div>
-        </div>
-        ${dirs
+      // 构建返回上级目录的项（如果不是根目录）
+      let parentDirHtml = "";
+      if (path !== "/") {
+        const parentPath = path.substring(0, path.lastIndexOf("/")) || "/";
+        parentDirHtml = `
+          <div class="file-item" data-action="parent" data-path="${escapeHtml(parentPath)}">
+              <div class="file-main">
+                  <div class="file-icon"><i class="ti ti-arrow-up"></i></div>
+                  <div class="file-name">.. (返回上级)</div>
+              </div>
+          </div>
+        `;
+      }
+
+      // 构建目录列表 HTML
+      let dirsHtml = "";
+      if (dirs.length === 0) {
+        dirsHtml = `
+          <div class="empty-state" style="padding: 20px; text-align: center; color: var(--text-secondary);">
+              <i class="ti ti-folder-off" style="font-size: 32px;"></i>
+              <p style="margin-top: 8px;">此目录为空</p>
+          </div>
+        `;
+      } else {
+        dirsHtml = dirs
           .map(
             (dir) => `
-              <div class="file-item" onclick="selectPath('${escapeHtml(dir.path)}')" style="cursor: pointer;">
+              <div class="file-item" data-action="dir" data-path="${escapeHtml(dir.path)}">
                   <div class="file-main">
                       <div class="file-icon"><i class="ti ti-folder"></i></div>
                       <div class="file-name">${escapeHtml(dir.name)}</div>
@@ -1271,8 +1304,53 @@ async function loadPathSelector(path) {
               </div>
             `,
           )
-          .join("")}
+          .join("");
+      }
+
+      content.innerHTML = `
+        ${parentDirHtml}
+        <div class="file-item" data-action="current" data-path="${escapeHtml(currentDirItem.path)}" style="cursor: pointer;">
+            <div class="file-main">
+                <div class="file-icon"><i class="ti ti-check"></i></div>
+                <div class="file-name">${escapeHtml(currentDirItem.name)} (当前)</div>
+            </div>
+        </div>
+        ${dirsHtml}
       `;
+
+      // 绑定点击事件
+      const fileItems = content.querySelectorAll(".file-item");
+      console.log("绑定的文件项数量:", fileItems.length);
+
+      fileItems.forEach((item, index) => {
+        const action = item.getAttribute("data-action");
+        const targetPath = item.getAttribute("data-path");
+        console.log(`项目 ${index}:`, { action, targetPath });
+
+        item.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const itemAction = item.getAttribute("data-action");
+          const itemPath = item.getAttribute("data-path");
+
+          console.log("点击路径选择器项目:", itemAction, itemPath);
+
+          if (itemAction === "parent" && itemPath) {
+            // 返回上级目录
+            console.log("返回上级目录:", itemPath);
+            loadPathSelector(itemPath);
+          } else if (itemAction === "dir" && itemPath) {
+            // 进入子目录
+            console.log("进入子目录:", itemPath);
+            loadPathSelector(itemPath);
+          } else if (itemAction === "current" && itemPath) {
+            // 选择当前目录
+            console.log("选择当前目录:", itemPath);
+            selectPath(itemPath);
+          }
+        });
+      });
 
       document.getElementById("pathSelectorStatus").textContent =
         `当前路径：${path}`;
@@ -1280,6 +1358,7 @@ async function loadPathSelector(path) {
       content.innerHTML = '<div class="empty-state"><p>加载失败</p></div>';
     }
   } catch (error) {
+    console.error("加载路径选择器失败:", error);
     content.innerHTML = '<div class="empty-state"><p>加载失败</p></div>';
     showToast("网络错误：" + error.message, "error");
   }

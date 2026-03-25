@@ -3,6 +3,7 @@
 //! 提供统一的存储抽象层，包括文件元数据和存储操作 trait
 
 use std::error::Error;
+use std::fmt::Debug;
 use std::future::Future;
 
 use serde::{Deserialize, Serialize};
@@ -92,8 +93,8 @@ pub struct UploadInfo {
 
 pub trait Storage: Send + Sync {
     type Error: Send + Sync + Error + 'static + Into<RlistError> + From<String>;
-    type End2EndCopyMeta: Send;
-    type End2EndMoveMeta: Send;
+    type End2EndCopyMeta: Send + Debug;
+    type End2EndMoveMeta: Send + Debug;
 
     /// 存储名称（人类可读）
     fn name(&self) -> &str;
@@ -156,7 +157,7 @@ pub trait Storage: Send + Sync {
         &self,
         source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     fn gen_copy_meta(
         &self,
@@ -167,7 +168,7 @@ pub trait Storage: Send + Sync {
         &self,
         source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     fn gen_move_meta(
         &self,

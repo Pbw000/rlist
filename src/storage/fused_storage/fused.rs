@@ -50,13 +50,13 @@ impl<T: Storage> Default for FusedStorage<T> {
 
 impl<T: Storage + 'static> FusedStorage<T> {
     /// 便捷的复制方法：从源路径复制到目标路径
-    pub async fn copy(&self, src_path: &str, dest_path: &str) -> Result<Meta, RlistError> {
+    pub async fn copy(&self, src_path: &str, dest_path: &str) -> Result<(), RlistError> {
         let source_meta = self.gen_copy_meta(src_path).await?;
         self.copy_end_to_end(source_meta, dest_path).await
     }
 
     /// 便捷的移动方法：从源路径移动到目标路径
-    pub async fn move_file(&self, src_path: &str, dest_path: &str) -> Result<Meta, RlistError> {
+    pub async fn move_file(&self, src_path: &str, dest_path: &str) -> Result<(), RlistError> {
         let source_meta = self.gen_move_meta(src_path).await?;
         self.move_end_to_end(source_meta, dest_path).await
     }
@@ -241,16 +241,13 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         &self,
         source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
-    ) -> Result<Meta, Self::Error> {
+    ) -> Result<(), Self::Error> {
         // 获取目标驱动和路径
         let (dest_drive, dest_remaining_path) =
             self.get_driver(dest_path)
                 .ok_or(RlistError::Storage(StorageError::NotFound(
                     "Dest storage not found!".to_owned(),
                 )))?;
-
-        // 使用目标驱动来执行复制操作
-        // 目标驱动会验证 meta 类型是否匹配
         dest_drive
             .copy_end_to_end(source_meta, dest_remaining_path)
             .await
@@ -274,7 +271,7 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         &self,
         source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
-    ) -> Result<Meta, Self::Error> {
+    ) -> Result<(), Self::Error> {
         // 获取目标驱动和路径
         let (dest_drive, dest_remaining_path) =
             self.get_driver(dest_path)

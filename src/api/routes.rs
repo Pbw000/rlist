@@ -151,11 +151,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/api", public_auth_routes)
         .nest("/obs", public_routes)
-        // 认证路由（需要 JWT 认证）
         .nest("/api", protected_auth_routes)
-        // 文件系统路由（需要 JWT 认证和权限检查）
         .nest("/api", fs_routes)
-        // 管理员路由
         .nest("/api", admin_routes)
         .with_state(state)
 }

@@ -133,7 +133,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
         &self,
         source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
-    ) -> Result<FileMeta, Self::Error> {
+    ) -> Result<(), Self::Error> {
         if self.read_only {
             return Err(<T as Storage>::Error::from(
                 "Storage is read-only".to_string(),
@@ -152,7 +152,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
         &self,
         source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
-    ) -> Result<FileMeta, Self::Error> {
+    ) -> Result<(), Self::Error> {
         if self.read_only {
             return Err(<T as Storage>::Error::from(
                 "Storage is read-only".to_string(),

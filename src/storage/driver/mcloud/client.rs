@@ -304,7 +304,7 @@ impl Storage for McloudStorage {
         &self,
         source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async move {
             let source_id = source_meta; // source_meta 就是 file_id
 
@@ -314,12 +314,8 @@ impl Storage for McloudStorage {
                 "root".to_string()
             };
 
-            let source_id_clone = source_id.clone();
-
             self.copy_file(vec![source_id], &dest_id).await?;
-
-            let meta = self.get_file_meta_by_path(&source_id_clone).await?;
-            Ok(meta.to_meta())
+            Ok(())
         }
     }
 
@@ -340,7 +336,7 @@ impl Storage for McloudStorage {
         &self,
         source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async move {
             let source_id = source_meta; // source_meta 就是 file_id
 
@@ -350,13 +346,9 @@ impl Storage for McloudStorage {
                 "root".to_string()
             };
 
-            // 移动操作：先复制再删除
-            let source_id_clone = source_id.clone();
-            self.copy_file(vec![source_id], &dest_id).await?;
-            self.delete_file(vec![source_id_clone]).await?;
-
-            let meta = self.get_file_meta_by_path(&dest_id).await?;
-            Ok(meta.to_meta())
+            // 使用 batchMove API 直接移动文件
+            self.move_file(vec![source_id.clone()], &dest_id).await?;
+            Ok(())
         }
     }
 
@@ -870,6 +862,30 @@ impl McloudStorage {
         };
 
         self.json_request::<serde_json::Value>(Method::POST, "/file/batchCopy", &request)
+            .await?;
+
+        Ok(())
+    }
+
+    /// 移动文件
+    pub async fn move_file(
+        &self,
+        file_ids: Vec<String>,
+        to_parent_file_id: &str,
+    ) -> Result<(), McloudError> {
+        #[allow(non_snake_case)]
+        #[derive(Serialize)]
+        struct MoveRequest {
+            fileIds: Vec<String>,
+            toParentFileId: String,
+        }
+
+        let request = MoveRequest {
+            fileIds: file_ids,
+            toParentFileId: to_parent_file_id.to_string(),
+        };
+
+        self.json_request::<serde_json::Value>(Method::POST, "/file/batchMove", &request)
             .await?;
 
         Ok(())
