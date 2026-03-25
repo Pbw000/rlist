@@ -13,7 +13,7 @@ use axum::{
 pub use config::ApiConfig;
 pub use state::AppState;
 use std::time::Duration;
-use tower_http::{cors::CorsLayer, services::ServeDir, timeout::TimeoutLayer, trace::TraceLayer};
+use tower_http::{services::ServeDir, timeout::TimeoutLayer, trace::TraceLayer};
 use tracing::info;
 
 /// 启动 API 服务器
@@ -22,7 +22,6 @@ pub async fn start_server(state: AppState, addr: &str) -> std::io::Result<()> {
     info!("API 服务器启动在 {}", addr);
     info!("前端页面访问地址：http://{}/public.html", addr);
 
-    let cors = CorsLayer::permissive();
     let static_service = ServeDir::new("static").append_index_html_on_directories(false);
 
     // 默认根路径重定向到 public.html
@@ -38,7 +37,6 @@ pub async fn start_server(state: AppState, addr: &str) -> std::io::Result<()> {
         .route("/", root_redirect)
         .merge(api_routes)
         .fallback_service(get_service(static_service))
-        .layer(cors)
         .with_state(state);
 
     axum::serve(listener, app).await

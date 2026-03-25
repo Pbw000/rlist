@@ -223,12 +223,20 @@ class FileManager {
   async deleteSelected() {
     const paths = Array.from(this.selectedFiles);
     let successCount = 0;
+    const authToken = localStorage.getItem("rlist_auth_token");
 
     for (const path of paths) {
       try {
+        const headers = {
+          "Content-Type": "application/json",
+        };
+        if (authToken) {
+          headers["AUTH-JWT-TOKEN"] = authToken;
+        }
+
         const response = await fetch(`${this.apiBase}/fs/remove`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: headers,
           body: JSON.stringify({ path }),
         });
 

@@ -65,12 +65,12 @@ impl AuthConfig {
         }
     }
 
-    /// 注册新用户
     pub async fn register(
         &self,
-        username: String,
-        password: String,
+        username: impl Into<String>,
+        password: impl AsRef<str>,
     ) -> Result<(), (StatusCode, String)> {
+        let username = username.into();
         // 检查用户名是否已存在于内存映射中
         {
             let username_guard = self.username_to_id.read().await;
@@ -81,7 +81,11 @@ impl AuthConfig {
 
         // 在凭证存储中注册（使用默认用户权限）
         self.credentials_store
-            .register(username.clone(), password, UserPermissions::default_user())
+            .register(
+                &username,
+                password.as_ref(),
+                UserPermissions::default_user(),
+            )
             .await?;
 
         // 从数据库获取权限
@@ -113,7 +117,6 @@ impl AuthConfig {
         Ok(())
     }
 
-    /// 用户登录，验证成功后返回 JWT token
     pub async fn login(
         &self,
         username: String,
@@ -184,12 +187,8 @@ impl AuthConfig {
         }
     }
 
-    /// 删除用户
     pub async fn remove_user(&self, username: &str) -> bool {
-        // 从凭证存储中删除
-        self.credentials_store.remove(username).await;
-
-        // 从内存中删除
+        let ret = self.credentials_store.remove(username).await;
         let user_id = {
             let mut username_guard = self.username_to_id.write().await;
             username_guard.remove(username)
@@ -199,8 +198,7 @@ impl AuthConfig {
             let mut users_guard = self.users.write().await;
             users_guard.remove(&id);
         }
-
-        true
+        ret
     }
 }
 

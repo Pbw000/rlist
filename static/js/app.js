@@ -101,33 +101,6 @@ function showLoginInterface() {
 // ==================== 认证相关函数 ====================
 
 /**
- * 显示认证标签页
- * @param {string} tab - login 或 register
- */
-function showAuthTab(tab) {
-  const loginTab = document.getElementById("loginTab");
-  const registerTab = document.getElementById("registerTab");
-  const loginForm = document.getElementById("loginForm");
-  const registerForm = document.getElementById("registerForm");
-  const authMessage = document.getElementById("authMessage");
-
-  authMessage.textContent = "";
-  authMessage.className = "";
-
-  if (tab === "login") {
-    loginTab.classList.add("active");
-    registerTab.classList.remove("active");
-    loginForm.style.display = "block";
-    registerForm.style.display = "none";
-  } else {
-    loginTab.classList.remove("active");
-    registerTab.classList.add("active");
-    loginForm.style.display = "none";
-    registerForm.style.display = "block";
-  }
-}
-
-/**
  * 处理登录
  */
 async function handleLogin() {
@@ -151,51 +124,6 @@ async function handleLogin() {
     setTimeout(() => {
       showMainInterface(username);
     }, 1000);
-  } else {
-    authMessage.textContent = result.message;
-    authMessage.className = "error";
-  }
-}
-
-/**
- * 处理注册
- */
-async function handleRegister() {
-  const username = document.getElementById("registerUsername").value.trim();
-  const password = document.getElementById("registerPassword").value;
-  const passwordConfirm = document.getElementById(
-    "registerPasswordConfirm",
-  ).value;
-  const authMessage = document.getElementById("authMessage");
-
-  if (!username || !password) {
-    authMessage.textContent = "请输入用户名和密码";
-    authMessage.className = "error";
-    return;
-  }
-
-  if (password.length < 6) {
-    authMessage.textContent = "密码长度至少为 6 位";
-    authMessage.className = "error";
-    return;
-  }
-
-  if (password !== passwordConfirm) {
-    authMessage.textContent = "两次输入的密码不一致";
-    authMessage.className = "error";
-    return;
-  }
-
-  const result = await register(username, password);
-  if (result.success) {
-    authMessage.textContent = result.message;
-    authMessage.className = "success";
-    document.getElementById("registerUsername").value = "";
-    document.getElementById("registerPassword").value = "";
-    document.getElementById("registerPasswordConfirm").value = "";
-    setTimeout(() => {
-      showAuthTab("login");
-    }, 1500);
   } else {
     authMessage.textContent = result.message;
     authMessage.className = "error";
@@ -1448,22 +1376,18 @@ async function deleteFile(path) {
 // ==================== 其他功能 ====================
 
 /**
- * 设置管理员密钥
+ * 打开管理后台（独立页面）
  */
-function setAdminKey() {
-  const adminKey = document.getElementById("adminKeyInput").value.trim();
-  if (adminKey) {
-    localStorage.setItem("rlist_admin_key", adminKey);
-    showToast("管理员密钥已保存", "success");
+function openAdminPanel() {
+  // 先检查认证状态
+  const authToken = localStorage.getItem("rlist_auth_token");
+  if (!authToken) {
+    showToast("请先登录", "error");
+    return;
   }
-}
 
-/**
- * 切换管理面板
- */
-function toggleAdminPanel() {
-  const panel = document.getElementById("adminPanel");
-  panel.style.display = panel.style.display === "none" ? "flex" : "none";
+  // 使用 location.href 直接跳转，避免被浏览器拦截
+  window.location.href = "/admin.html";
 }
 
 // ==================== 键盘事件 ====================

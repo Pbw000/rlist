@@ -5,6 +5,7 @@
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rand::{Rng, RngExt};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use sqlx::SqlitePool;
 use std::time::Duration;
@@ -17,7 +18,7 @@ const BAN_DURATION: Duration = Duration::from_secs(600);
 const MIN_PASSWORD_LENGTH: usize = 8;
 const MAX_USERNAME_LENGTH: usize = 64;
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct UserPermissions {
     pub read: bool,
     pub download: bool,
@@ -147,8 +148,8 @@ impl UserCredentialsStore {
     /// 注册用户凭证
     pub async fn register(
         &self,
-        username: String,
-        password: String,
+        username: &str,
+        password: &str,
         permissions: UserPermissions,
     ) -> Result<(), (StatusCode, String)> {
         // 验证用户名

@@ -1,6 +1,5 @@
 pub mod api;
 pub mod auth;
-pub mod crypto;
 pub mod error;
 pub mod storage;
 pub use storage::all::*;
@@ -8,3 +7,4 @@ pub use storage::driver::local::local::LocalStorage;
 pub use storage::file_meta::Meta;
 pub use storage::fused_storage::partial_storage::PartialStorage;
 pub use storage::model::{FileContent, FileList, FileMeta, Storage};
+pub mod utils;

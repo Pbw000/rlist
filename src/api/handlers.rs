@@ -1,14 +1,19 @@
-//! API 请求处理器
 use axum::{
     Json,
     body::Body,
     extract::{Path, Query, State},
     response::{IntoResponse, Response},
 };
+use ring::digest::SHA512;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::storage::model::{Meta, Storage};
-use crate::{api::state::AppState, storage::model::UploadInfoParams};
+use crate::{
+    api::state::AppState, auth::user_store::UserPermissions, storage::model::UploadInfoParams,
+};
+use crate::{
+    auth::challenge::IntoHashContext,
+    storage::model::{Meta, Storage},
+};
 
 /// 反序列化 u64，支持字符串或数字格式
 fn deserialize_u64_from_str_or_num<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -48,6 +53,10 @@ pub struct FsOperation {
 pub struct RenameRequest {
     pub src_path: String,
     pub new_name: String,
+}
+#[derive(Debug, Deserialize)]
+pub struct RmUserRequest {
+    pub user_name: String,
 }
 
 /// 移动/复制请求
@@ -205,8 +214,6 @@ pub async fn complete_upload(
     State(state): State<AppState>,
     Query(query): Query<CompleteUploadParams>,
 ) -> impl IntoResponse {
-    // 调用存储驱动的 complete_upload 方法
-    // path 已经是绝对路径（包含存储前缀）
     match state
         .complete_upload(
             &query.path,
@@ -464,7 +471,6 @@ pub async fn add_storage(
     ApiResponse::success(serde_json::json!({"message": "存储添加功能开发中"}))
 }
 
-/// 删除存储
 pub async fn remove_storage(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -473,6 +479,93 @@ pub async fn remove_storage(
     ApiResponse::success(serde_json::json!({"deleted": name}))
 }
 
+/// 用户信息响应
+#[derive(Debug, Serialize)]
+pub struct UserInfoResponse {
+    pub username: String,
+    pub permissions: UserPermissionsResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserPermissionsResponse {
+    pub read: bool,
+    pub download: bool,
+    pub upload: bool,
+    pub delete: bool,
+    pub move_obj: bool,
+    pub copy: bool,
+    pub create_dir: bool,
+    pub list: bool,
+}
+
+impl From<crate::auth::user_store::UserPermissions> for UserPermissionsResponse {
+    fn from(perms: crate::auth::user_store::UserPermissions) -> Self {
+        UserPermissionsResponse {
+            read: perms.read,
+            download: perms.download,
+            upload: perms.upload,
+            delete: perms.delete,
+            move_obj: perms.move_obj,
+            copy: perms.copy,
+            create_dir: perms.create_dir,
+            list: perms.list,
+        }
+    }
+}
+
+/// 列出所有用户
+pub async fn list_users(State(state): State<AppState>) -> impl IntoResponse {
+    match state
+        .inner
+        .auth_config
+        .credentials_store
+        .list_usernames()
+        .await
+    {
+        Ok(usernames) => {
+            let mut users = Vec::new();
+            for username in usernames {
+                match state
+                    .inner
+                    .auth_config
+                    .credentials_store
+                    .get_permissions(&username)
+                    .await
+                {
+                    Ok(perms) => {
+                        users.push(UserInfoResponse {
+                            username,
+                            permissions: perms.into(),
+                        });
+                    }
+                    Err(_) => {
+                        // 跳过无法获取权限的用户
+                        continue;
+                    }
+                }
+            }
+            ApiResponse::success(users)
+        }
+        Err(e) => ApiResponse::error(500, format!("获取用户列表失败：{}", e)),
+    }
+}
+
+pub async fn remove_user(
+    State(state): State<AppState>,
+    Json(req): Json<RmUserRequest>,
+) -> impl IntoResponse {
+    // 不允许删除 admin 用户
+    if req.user_name == "admin" {
+        return ApiResponse::error(400, "不能删除 admin 用户".to_string());
+    }
+
+    let success = state.inner.auth_config.remove_user(&req.user_name).await;
+    if success {
+        ApiResponse::success(serde_json::json!({"deleted": req.user_name}))
+    } else {
+        ApiResponse::error(404, "User not found".to_string())
+    }
+}
 #[derive(Debug, Serialize)]
 pub struct FileInfo {
     pub name: String,
@@ -508,9 +601,9 @@ pub struct RegisterRequest {
     pub salt: u64,
     #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
     pub timestamp: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
-    pub nonce: u64,
+    pub nonce: String,
     pub claim: String,
+    pub permissions: UserPermissions,
 }
 
 /// 登录请求
@@ -522,11 +615,31 @@ pub struct LoginRequest {
     pub salt: u64,
     #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
     pub timestamp: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
-    pub nonce: u64,
+    pub nonce: String,
     pub claim: String,
 }
 
+impl IntoHashContext for LoginRequest {
+    fn hash_and_to_context(&self) -> ring::digest::Context {
+        let mut context = ring::digest::Context::new(&SHA512);
+        context.update(self.nonce.as_bytes());
+        context.update(self.username.as_bytes());
+        context.update(self.password.as_bytes());
+        context.update(&self.timestamp.to_be_bytes());
+        context
+    }
+}
+impl IntoHashContext for RegisterRequest {
+    fn hash_and_to_context(&self) -> ring::digest::Context {
+        let mut context = ring::digest::Context::new(&SHA512);
+        context.update(&[self.permissions.to_bits()]);
+        context.update(self.nonce.as_bytes());
+        context.update(self.username.as_bytes());
+        context.update(self.password.as_bytes());
+        context.update(&self.timestamp.to_be_bytes());
+        context
+    }
+}
 /// 登录响应
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
@@ -539,7 +652,6 @@ pub struct RegisterResponse {
     pub message: String,
 }
 
-/// 用户注册
 #[axum::debug_handler]
 pub async fn register(
     State(state): State<AppState>,
@@ -552,27 +664,34 @@ pub async fn register(
         return ApiResponse::error(400, format!("时间戳无效：{}", err));
     }
 
-    // 验证 challenge (payload = timestamp + username + password + nonce)
-    let challenge_payload = format!(
-        "{}{}{}{}",
-        payload.timestamp, payload.username, payload.password, payload.nonce
-    );
     if let Err(_) = challenge
-        .validate(payload.salt, &payload.claim, &challenge_payload)
+        .validate(payload.salt, &payload.claim, &payload)
         .await
     {
-        return ApiResponse::error(400, "Challenge 验证失败".to_string());
+        return ApiResponse::error(400, "Challenge挑战失败".to_string());
     }
 
     match state
         .inner
         .auth_config
-        .register(payload.username, payload.password)
+        .register(&payload.username, &payload.password)
         .await
     {
-        Ok(_user_id) => ApiResponse::success(RegisterResponse {
-            message: "注册成功".to_string(),
-        }),
+        Ok(_user_id) => {
+            let permissions: crate::auth::user_store::UserPermissions = payload.permissions.into();
+            if let Err(err) = state
+                .inner
+                .auth_config
+                .credentials_store
+                .update_permissions(&payload.username, permissions)
+                .await
+            {
+                tracing::warn!("用户 {} 权限更新失败:{}", payload.username, err.1);
+            }
+            ApiResponse::success(RegisterResponse {
+                message: "注册成功".to_string(),
+            })
+        }
         Err((status, msg)) => ApiResponse::error(status.as_u16() as i32, msg),
     }
 }
@@ -590,16 +709,11 @@ pub async fn login(
         return ApiResponse::error(400, format!("时间戳无效：{}", err));
     }
 
-    // 验证 challenge (payload = timestamp + username + password + nonce)
-    let challenge_payload = format!(
-        "{}{}{}{}",
-        payload.timestamp, payload.username, payload.password, payload.nonce
-    );
     if let Err(_) = challenge
-        .validate(payload.salt, &payload.claim, &challenge_payload)
+        .validate(payload.salt, &payload.claim, &payload)
         .await
     {
-        return ApiResponse::error(400, "Challenge 验证失败".to_string());
+        return ApiResponse::error(400, "Challenge挑战失败".to_string());
     }
 
     match state

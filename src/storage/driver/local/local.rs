@@ -1,7 +1,7 @@
-use crate::crypto::ChecksumHasher;
 use crate::error::StorageError;
 use crate::storage::file_meta::DownloadableMeta;
 use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
+use ring::digest::{Context, SHA256};
 use std::future::Future;
 use std::io::SeekFrom;
 use std::path::PathBuf;
@@ -178,7 +178,7 @@ impl Storage for LocalStorage {
             let mut file = File::open(&normalized)
                 .await
                 .map_err(|e| StorageError::NotFound(e.to_string()))?;
-            let mut check_sum = ChecksumHasher::new();
+            let mut check_sum = Context::new(&SHA256);
             let mut buffer = [0; 1024];
 
             loop {
@@ -198,7 +198,7 @@ impl Storage for LocalStorage {
             Ok(DownloadableMeta {
                 download_url,
                 size: metadata.len(),
-                hash: check_sum.finish_hex(),
+                hash: hex::encode(check_sum.finish()),
             })
         }
     }

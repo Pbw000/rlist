@@ -1,3 +1,4 @@
+use ring::digest::Context;
 use std::{
     ops::DerefMut,
     sync::{Arc, atomic::AtomicU64},
@@ -6,8 +7,6 @@ use std::{
 
 use thiserror::Error;
 use tokio::sync::RwLock;
-
-use crate::crypto::ChecksumHasher;
 
 #[derive(Debug, Error)]
 pub enum ChallengeError {
@@ -19,8 +18,14 @@ pub enum ChallengeError {
     Expired,
     #[error("Invalid timestamp")]
     InvalidTimestamp,
+    #[error("Invalid format")]
+    InvalidFormat,
+    #[error("Challenge failed")]
+    ChallengeFailed,
 }
-
+pub trait IntoHashContext {
+    fn hash_and_to_context(&self) -> Context;
+}
 #[derive(Debug, Clone)]
 pub struct ChallengeTask<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64 = 300> {
     pub challenge: Arc<RotatingChallenge>,
@@ -33,7 +38,6 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
             challenge: Arc::new(RotatingChallenge::new()),
         }
     }
-    /// 验证时间戳有效性
     pub fn validate_timestamp(&self, timestamp: u64) -> Result<(), ChallengeError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -45,38 +49,32 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
         }
         Ok(())
     }
-    /// 验证 challenge（payload 格式：timestamp + username + password + nonce）
-    pub async fn validate<T: Into<String>>(
+    pub async fn validate<T: IntoHashContext>(
         &self,
         salt: u64,
         claim: &str,
-        payload: T,
+        payload: &T,
     ) -> Result<(), ChallengeError> {
         if claim.len() < DIFFICUITY + 1 {
-            eprintln!("Validation failed: claim length too short");
-            return Err(ChallengeError::ValidationFailed);
+            return Err(ChallengeError::InvalidFormat);
         }
         if !claim[..DIFFICUITY].chars().all(|c| c == '0') {
-            eprintln!("Validation failed: claim prefix not all zeros");
-            return Err(ChallengeError::ValidationFailed);
+            return Err(ChallengeError::ChallengeFailed);
         }
-        let salt_lock = self.challenge.get_salt(salt).ok_or_else(|| {
-            eprintln!("Invalid salt value: {}", salt);
-            ChallengeError::InvalidSalt
-        })?;
-        let mut hasher = ChecksumHasher::new();
-        let payload_str = payload.into();
+        let salt_lock = self
+            .challenge
+            .get_salt(salt)
+            .ok_or_else(|| ChallengeError::InvalidSalt)?;
+        let mut hasher = payload.hash_and_to_context();
         {
             let salt_hex = salt_lock.read().await;
             hasher.update(salt_hex.as_bytes());
         }
-        hasher.update(payload_str.as_bytes());
-        let result = hasher.finish_hex();
+        let result = hasher.finish();
+        let result = hex::encode(result);
         if result.as_str() != claim {
-            eprintln!("Validation failed: hash result doesn't match claim");
             return Err(ChallengeError::ValidationFailed);
         }
-
         Ok(())
     }
     pub fn start_rotate(&self, sec: usize) -> tokio::task::JoinHandle<()> {

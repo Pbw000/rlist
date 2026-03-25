@@ -19,15 +19,53 @@ function getAuthHeaders() {
 }
 
 /**
- * 使用 Web Crypto API 计算 SHA256 哈希
- * @param {string} message - 输入消息
+ * 使用 Web Crypto API 计算 SHA512 哈希
+ * @param {Uint8Array} data - 输入数据
  * @returns {Promise<string>} - 十六进制哈希字符串
  */
-async function sha256(message) {
-  const msgBuffer = new TextEncoder().encode(message);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+async function sha512(data) {
+  const hashBuffer = await crypto.subtle.digest("SHA-512", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 将字符串转为 Uint8Array
+ * @param {string} str - 字符串
+ * @returns {Uint8Array} - 字节数组
+ */
+function stringToBytes(str) {
+  return new TextEncoder().encode(str);
+}
+
+/**
+ * 将数字转为 big-endian 8 字节数组
+ * @param {bigint} num - 数字
+ * @returns {Uint8Array} - 8 字节数组
+ */
+function bigIntToBigEndianBytes(num) {
+  const bytes = new Uint8Array(8);
+  for (let i = 7; i >= 0; i--) {
+    bytes[i] = Number(num & 0xffn);
+    num = num >> 8n;
+  }
+  return bytes;
+}
+
+/**
+ * 合并多个 Uint8Array
+ * @param  {...Uint8Array} arrays - 字节数组列表
+ * @returns {Uint8Array} - 合并后的字节数组
+ */
+function mergeBytes(...arrays) {
+  const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const arr of arrays) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
 }
 
 /**
@@ -75,34 +113,36 @@ async function getChallenge() {
 }
 
 /**
- * 计算 Challenge Proof
- * @param {bigint} salt - Salt 值
- * @param {number} timestamp - 时间戳（秒）
- * @param {string} username - 用户名
- * @param {string} password - 密码
- * @param {number} nonce - 随机数
- * @returns {Promise<string>} - Challenge claim
+ * 将权限对象转换为位掩码
+ * 后端定义：read=bit0, download=bit1, upload=bit2, delete=bit3, move_obj=bit4, copy=bit5, create_dir=bit6, list=bit7
+ * @param {Object} permissions - 权限对象
+ * @returns {number} - 位掩码
  */
-async function calculateChallengeProof(
-  salt,
-  timestamp,
-  username,
-  password,
-  nonce,
-) {
-  const saltHex = salt.toString(16);
-  const payload = `${timestamp}${username}${password}${nonce}`;
-  return await sha256(saltHex + payload);
+function permissionsToBits(permissions) {
+  if (!permissions) return 0;
+  let bits = 0;
+  if (permissions.read) bits |= 1 << 0;
+  if (permissions.download) bits |= 1 << 1;
+  if (permissions.upload) bits |= 1 << 2;
+  if (permissions.delete) bits |= 1 << 3;
+  if (permissions.move_obj) bits |= 1 << 4;
+  if (permissions.copy) bits |= 1 << 5;
+  if (permissions.create_dir) bits |= 1 << 6;
+  if (permissions.list) bits |= 1 << 7;
+  return bits;
 }
 
 /**
  * 寻找满足难度要求的 nonce
+ * 使用批量计算优化，每批处理多个 nonce
  * @param {bigint} salt - Salt 值
  * @param {number} timestamp - 时间戳
  * @param {string} username - 用户名
  * @param {string} password - 密码
  * @param {number} difficulty - 难度（前导 0 数量）
- * @returns {Promise<{nonce: number, claim: string}>}
+ * @param {Object} [permissions] - 权限对象（仅注册时需要）
+ * @param {number} [batchSize=10000] - 每批计算的 nonce 数量
+ * @returns {Promise<{nonce: string, claim: string}>}
  */
 async function findValidNonce(
   salt,
@@ -110,24 +150,46 @@ async function findValidNonce(
   username,
   password,
   difficulty = 4,
+  permissions = null,
+  batchSize = 10000,
 ) {
+  const usernameBytes = stringToBytes(username);
+  const passwordBytes = stringToBytes(password);
+  const timestampBytes = bigIntToBigEndianBytes(BigInt(timestamp));
+  const saltHex = salt.toString(16);
+  const saltHexBytes = stringToBytes(saltHex);
+  const targetZeros = "0".repeat(difficulty);
+
+  // 注册时需要添加 permissions bits，登录时不需要
+  const hasPermissions = permissions !== null && permissions !== undefined;
+  const permBits = hasPermissions ? permissionsToBits(permissions) : 0;
+  const permBytes = hasPermissions
+    ? new Uint8Array([permBits])
+    : new Uint8Array(0);
+
   let nonce = 0;
   while (true) {
-    const claim = await calculateChallengeProof(
-      salt,
-      timestamp,
-      username,
-      password,
-      nonce,
-    );
-    if (claim.startsWith("0".repeat(difficulty))) {
-      return { nonce, claim };
+    for (let i = 0; i < batchSize; i++) {
+      const nonceStr = (nonce + i).toString();
+      const nonceBytes = stringToBytes(nonceStr);
+
+      const payload = mergeBytes(
+        permBytes,
+        nonceBytes,
+        usernameBytes,
+        passwordBytes,
+        timestampBytes,
+        saltHexBytes,
+      );
+
+      const hash = await sha512(payload);
+      if (hash.startsWith(targetZeros)) {
+        return { nonce: nonceStr, claim: hash };
+      }
     }
-    nonce++;
-    // 每 10000 次让出主线程
-    if (nonce % 10000 === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
+    nonce += batchSize;
+    // 每批让出主线程，避免阻塞 UI
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
@@ -138,18 +200,13 @@ async function findValidNonce(
  * @returns {Promise<Object>} - 响应结果
  */
 async function apiRequest(endpoint, options = {}) {
-  const defaultOptions = {
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-    },
-  };
+  const authHeaders = getAuthHeaders();
 
   const mergedOptions = {
-    ...defaultOptions,
     ...options,
     headers: {
-      ...defaultOptions.headers,
+      "Content-Type": "application/json",
+      ...authHeaders,
       ...(options.headers || {}),
     },
   };
@@ -366,4 +423,104 @@ async function register(username, password) {
       message: "网络错误：" + error.message,
     };
   }
+}
+
+/**
+ * 检查当前用户是否为管理员
+ * @returns {Promise<boolean>} - 是否为管理员
+ */
+async function checkIsAdmin() {
+  try {
+    const response = await fetch(`${API_BASE}/admin/storage/list`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+
+    // 403 表示不是管理员
+    if (response.status === 403) {
+      return false;
+    }
+
+    // 200 表示是管理员
+    if (response.status === 200) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 列出所有用户
+ * @returns {Promise<Object>} - 用户列表结果
+ */
+async function listUsers() {
+  return await apiRequest("/admin/user/list", {
+    method: "GET",
+  });
+}
+
+/**
+ * 添加用户（管理员注册）
+ * @param {string} username - 用户名
+ * @param {string} password - 密码
+ * @param {Object} permissions - 权限对象
+ * @returns {Promise<Object>} - 添加结果
+ */
+async function addUser(username, password, permissions) {
+  try {
+    // 获取 challenge
+    const challengeResult = await getChallenge();
+    if (!challengeResult.success) {
+      return { success: false, message: challengeResult.message };
+    }
+    const salt = challengeResult.salt;
+
+    // 获取当前时间戳（秒）
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // 寻找满足难度要求的 nonce（传入 permissions）
+    const { nonce, claim } = await findValidNonce(
+      salt,
+      timestamp,
+      username,
+      password,
+      4,
+      permissions,
+    );
+
+    return await apiRequest("/admin/user/register", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        password,
+        salt: salt.toString(),
+        timestamp,
+        nonce,
+        claim,
+        permissions,
+      }),
+    });
+  } catch (error) {
+    return {
+      success: false,
+      message: "网络错误：" + error.message,
+    };
+  }
+}
+
+/**
+ * 删除用户
+ * @param {string} username - 用户名
+ * @returns {Promise<Object>} - 删除结果
+ */
+async function removeUser(username) {
+  return await apiRequest("/admin/user/remove", {
+    method: "POST",
+    body: JSON.stringify({
+      user_name: username,
+    }),
+  });
 }

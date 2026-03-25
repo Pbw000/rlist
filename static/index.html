@@ -14,7 +14,7 @@
             rel="stylesheet"
             href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"
         />
-        <link rel="stylesheet" href="/css/style.css" />
+        <link rel="stylesheet" href="/css/style.css?v=20260325002" />
     </head>
     <body>
         <!-- 登录/注册模态框 -->
@@ -24,22 +24,6 @@
                     <i class="ti ti-folder"></i>
                     <h1>RList</h1>
                     <p>文件管理系统</p>
-                </div>
-                <div class="auth-tabs">
-                    <button
-                        class="auth-tab active"
-                        id="loginTab"
-                        onclick="showAuthTab('login')"
-                    >
-                        登录
-                    </button>
-                    <button
-                        class="auth-tab"
-                        id="registerTab"
-                        onclick="showAuthTab('register')"
-                    >
-                        注册
-                    </button>
                 </div>
                 <div class="auth-form">
                     <div id="loginForm">
@@ -61,35 +45,6 @@
                         </div>
                         <button class="auth-btn" onclick="handleLogin()">
                             <i class="ti ti-login"></i> 登录
-                        </button>
-                    </div>
-                    <div id="registerForm" style="display: none">
-                        <div class="form-group">
-                            <label><i class="ti ti-user"></i> 用户名</label>
-                            <input
-                                type="text"
-                                id="registerUsername"
-                                placeholder="请输入用户名"
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label><i class="ti ti-lock"></i> 密码</label>
-                            <input
-                                type="password"
-                                id="registerPassword"
-                                placeholder="请输入密码（至少 6 位）"
-                            />
-                        </div>
-                        <div class="form-group">
-                            <label><i class="ti ti-lock"></i> 确认密码</label>
-                            <input
-                                type="password"
-                                id="registerPasswordConfirm"
-                                placeholder="请再次输入密码"
-                            />
-                        </div>
-                        <button class="auth-btn" onclick="handleRegister()">
-                            <i class="ti ti-user-plus"></i> 注册
                         </button>
                     </div>
                 </div>
@@ -140,20 +95,6 @@
                 </div>
             </div>
 
-            <!-- Admin Panel -->
-            <div class="admin-panel" id="adminPanel" style="display: none">
-                <i class="ti ti-shield-lock"></i>
-                <span>管理员模式</span>
-                <input
-                    type="text"
-                    id="adminKeyInput"
-                    placeholder="管理员密钥"
-                />
-                <button class="btn btn-primary" onclick="setAdminKey()">
-                    认证
-                </button>
-            </div>
-
             <!-- Toolbar -->
             <div class="toolbar">
                 <button class="btn btn-primary" onclick="showNewFolderModal()">
@@ -183,7 +124,12 @@
                 >
                     <i class="ti ti-trash"></i> 删除选中
                 </button>
-                <button class="btn btn-secondary" onclick="toggleAdminPanel()">
+                <button
+                    class="btn btn-secondary"
+                    id="adminBtn"
+                    onclick="openAdminPanel()"
+                    title="管理后台"
+                >
                     <i class="ti ti-settings"></i> 管理
                 </button>
                 <div style="flex: 1"></div>
@@ -426,10 +372,10 @@
                 }
             });
         </script>
-        <script src="/js/utils.js?v=20240323004"></script>
-        <script src="/js/api.js?v=20240323004"></script>
-        <script src="/js/file-manager.js?v=20240323004"></script>
-        <script src="/js/upload.js?v=20240323004"></script>
-        <script src="/js/app.js?v=20240323004"></script>
+        <script src="/js/utils.js?v=20260325006"></script>
+        <script src="/js/api.js?v=20260325006"></script>
+        <script src="/js/file-manager.js?v=20260325006"></script>
+        <script src="/js/upload.js?v=20260325006"></script>
+        <script src="/js/app.js?v=20260325006"></script>
     </body>
 </html>

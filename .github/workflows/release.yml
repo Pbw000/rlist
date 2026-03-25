@@ -43,21 +43,20 @@ jobs:
       - name: Install musl tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-dev musl-tools clang
+          sudo apt-get install -y musl-dev musl-tools
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: x86_64-unknown-linux-musl
 
-      - name: Configure musl linker
-        run: |
-          mkdir -p .cargo
-          echo '[target.x86_64-unknown-linux-musl]' > .cargo/config.toml
-          echo 'linker = "musl-gcc"' >> .cargo/config.toml
-
       - name: Build
         run: cargo build --release --bin rlist --target x86_64-unknown-linux-musl
+
+      - name: Check binary
+        run: |
+          ls -la target/x86_64-unknown-linux-musl/release/rlist
+          file target/x86_64-unknown-linux-musl/release/rlist
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -98,12 +97,15 @@ jobs:
           path: artifacts
 
       - name: List downloaded artifacts
-        run: ls -la artifacts
+        run: |
+          ls -la artifacts
+          file artifacts/*
 
       - name: Create release archives
         run: |
           cd artifacts
           for file in *; do
+            echo "Processing: $file"
             if [[ $file == *.exe ]]; then
               zip -r rlist-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip $file
             elif [[ $file == *musl* ]]; then

@@ -6,20 +6,15 @@ use axum::{
 };
 
 use crate::api::handlers;
-use crate::api::middleware::admin_auth_middleware;
+use crate::api::middleware::admin_permission_middleware;
 use crate::api::state::AppState;
 use crate::auth::auth::Permission;
 use crate::auth::middleware::{AuthMiddlewareState, auth_permission_middleware};
 
-/// 创建 API 路由（不绑定状态）
 pub fn create_routes(state: AppState) -> Router<AppState> {
-    // 公开认证路由（无需认证）
     let public_auth_routes = Router::new()
-        .route("/register", post(handlers::register))
         .route("/login", post(handlers::login))
         .route("/challenge", get(handlers::get_challenge));
-
-    // 需要认证的认证路由
     let protected_auth_routes = Router::new()
         .route("/me", get(handlers::get_current_user))
         .layer(middleware::from_fn_with_state(
@@ -134,7 +129,9 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
 
     // 需要管理员权限的路由
     let admin_routes = Router::new()
-        // 存储管理接口
+        .route("/admin/user/register", post(handlers::register))
+        .route("/admin/user/list", get(handlers::list_users))
+        .route("/admin/user/remove", post(handlers::remove_user))
         .route("/admin/storage/list", get(handlers::list_storages))
         .route("/admin/storage/add", post(handlers::add_storage))
         .route(
@@ -143,7 +140,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            admin_auth_middleware,
+            admin_permission_middleware,
         ));
 
     Router::new()

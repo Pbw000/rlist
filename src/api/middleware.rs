@@ -11,20 +11,19 @@ use axum::{
 
 use crate::api::state::AppState;
 
-pub async fn admin_auth_middleware(
+/// 管理员权限中间件 - 检查用户是否具有管理员权限
+pub async fn admin_permission_middleware(
     state: State<AppState>,
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    let admin_key = request
-        .headers()
-        .get("X-Admin-Key")
-        .and_then(|h| h.to_str().ok());
-
-    if let Some(key) = admin_key {
-        if state.verify_admin_key(key) {
-            return Ok(next.run(request).await);
-        }
-    }
-    Err((StatusCode::UNAUTHORIZED, "需要管理员权限"))
+    // 使用管理员权限（所有权限）进行检查
+    let auth_config = state.inner.auth_config.clone();
+    crate::auth::middleware::auth_permission_middleware_with_admin(
+        state,
+        request,
+        next,
+        auth_config,
+    )
+    .await
 }

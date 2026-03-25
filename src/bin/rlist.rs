@@ -1,7 +1,7 @@
 use rlist::PartialStorage;
 use rlist::api::{ApiConfig, AppState, start_server};
 use rlist::auth::auth::AuthConfig;
-use rlist::auth::user_store::UserCredentialsStore;
+use rlist::auth::user_store::{UserCredentialsStore, UserPermissions};
 use rlist::storage::driver::local::local::LocalStorage;
 use std::sync::Arc;
 
@@ -9,23 +9,34 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
     let addr = "localhost:10000".to_owned();
-    let admin_key = uuid::Uuid::new_v4().to_string();
-    println!("Admin key:{}", admin_key);
-    let config = ApiConfig {
-        addr: addr.clone(),
-        admin_key: admin_key,
-    };
+    let config = ApiConfig { addr: addr.clone() };
 
     tracing::info!("API 配置：{:?}", config);
-
-    // 创建用户凭证数据库
     let credentials_store = UserCredentialsStore::new("users.db").await?;
     tracing::info!("用户凭证数据库已初始化");
+    if !credentials_store.exists("admin").await {
+        let random_password = generate_random_password();
+        if let Err(e) = credentials_store
+            .register("admin", &random_password, UserPermissions::admin())
+            .await
+        {
+            tracing::error!("Failed to create admin user: {:?}", e);
+            return Err(format!("Failed to create admin user: {:?}", e).into());
+        }
+        println!("===========================================");
+        println!("Admin user created with random password:");
+        println!("Username: admin");
+        println!("Password: {}", random_password);
+        println!("===========================================");
+        tracing::info!("Admin user created with random password");
+    } else {
+        tracing::info!("Admin user already exists");
+    }
 
     // 创建认证配置
     let auth_config = Arc::new(AuthConfig::random(vec![], credentials_store).await);
 
-    let state = AppState::new(config.admin_key.clone(), auth_config);
+    let state = AppState::new(auth_config);
     let local_storage = LocalStorage::new(r"C:\Users\pang_\Downloads");
     state
         .add_storage("local_disk", "/local", local_storage)
@@ -49,4 +60,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_server(state, &addr).await?;
 
     Ok(())
+}
+
+fn generate_random_password() -> String {
+    use rand::seq::{IteratorRandom, SliceRandom};
+
+    let mut rng = rand::rng();
+    let mut password = String::with_capacity(32);
+    let uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let lowercase = "abcdefghijklmnopqrstuvwxyz";
+    let digits = "0123456789";
+    let special = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+    password.push(uppercase.chars().choose(&mut rng).unwrap());
+    password.push(lowercase.chars().choose(&mut rng).unwrap());
+    password.push(digits.chars().choose(&mut rng).unwrap());
+    password.push(special.chars().choose(&mut rng).unwrap());
+    let all = format!("{}{}{}{}", uppercase, lowercase, digits, special);
+    for _ in 0..28 {
+        password.push(all.chars().choose(&mut rng).unwrap());
+    }
+
+    // 打乱密码顺序
+    let mut chars: Vec<char> = password.chars().collect();
+    chars.shuffle(&mut rng);
+    chars.into_iter().collect()
 }

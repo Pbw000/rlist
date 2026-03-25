@@ -48,10 +48,7 @@ pub fn verify_token<T: Serialize + DeserializeOwned>(
         &DecodingKey::from_secret(secret),
         &Validation::new(Algorithm::HS512),
     )
-    .map_err(|e| {
-        tracing::warn!("JWT 验证错误：{:?}", e);
-        AuthError::TokenVerificationFailed
-    })?;
+    .map_err(|_| AuthError::TokenVerificationFailed)?;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
