@@ -1,5 +1,3 @@
-//! JWT 认证和权限检查中间件
-
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, StatusCode},
@@ -13,8 +11,6 @@ use crate::api::state::AppState;
 use crate::auth::auth::{AuthClaim, AuthConfig, Permission};
 use crate::auth::jwt::verify_token;
 use crate::auth::user_store::UserPermissions;
-
-/// 认证和权限检查中间件状态
 #[derive(Clone)]
 pub struct AuthMiddlewareState {
     pub auth_config: Arc<AuthConfig>,

@@ -463,11 +463,100 @@ body {
     box-shadow: var(--shadow);
     border: 1px solid var(--border-light);
     overflow: hidden;
+    position: relative;
 }
 
-/* ============ 文件列表 ============ */
+/* ============ 导航动画 ============ */
 .file-list {
     min-height: 400px;
+    transition: all 0.3s ease;
+}
+
+/* 进入动画 - 淡入 + 向上滑动 */
+.file-list.nav-entering .file-list-header {
+    animation: fadeInUp 0.3s ease forwards;
+}
+
+.file-list.nav-entering .file-item {
+    animation: fadeInUp 0.3s ease forwards;
+    opacity: 0;
+}
+
+/* 为每个文件项添加延迟，形成级联效果 */
+.file-list.nav-entering .file-item:nth-child(1) {
+    animation-delay: 0.05s;
+}
+.file-list.nav-entering .file-item:nth-child(2) {
+    animation-delay: 0.08s;
+}
+.file-list.nav-entering .file-item:nth-child(3) {
+    animation-delay: 0.11s;
+}
+.file-list.nav-entering .file-item:nth-child(4) {
+    animation-delay: 0.14s;
+}
+.file-list.nav-entering .file-item:nth-child(5) {
+    animation-delay: 0.17s;
+}
+.file-list.nav-entering .file-item:nth-child(6) {
+    animation-delay: 0.2s;
+}
+.file-list.nav-entering .file-item:nth-child(7) {
+    animation-delay: 0.23s;
+}
+.file-list.nav-entering .file-item:nth-child(8) {
+    animation-delay: 0.26s;
+}
+.file-list.nav-entering .file-item:nth-child(9) {
+    animation-delay: 0.29s;
+}
+.file-list.nav-entering .file-item:nth-child(10) {
+    animation-delay: 0.32s;
+}
+.file-list.nav-entering .file-item:nth-child(n + 11) {
+    animation-delay: 0.35s;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 离开动画 - 淡出 */
+.file-list.nav-leave {
+    opacity: 0;
+    transform: translateX(-20px);
+}
+
+/* 文件夹图标悬停动画 */
+.file-icon.folder {
+    transition: all var(--transition);
+}
+
+.file-item:hover .file-icon.folder {
+    transform: scale(1.1);
+    color: #f59e0b;
+}
+
+/* 文件夹进入时的脉冲效果 */
+@keyframes folderPulse {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.15);
+    }
+}
+
+.file-list.nav-entering .file-icon.folder {
+    animation: folderPulse 0.3s ease;
 }
 
 .file-list-header {

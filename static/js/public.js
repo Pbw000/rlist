@@ -191,8 +191,8 @@ function renderFiles(files) {
              data-path="${escapeHtml(file.path)}"
              data-type="${file.file_type}"
              oncontextmenu="showContextMenu(event, '${escapeHtml(file.path)}', '${file.file_type}')">
-            <div class="file-main" ondblclick="handleDoubleClick('${escapeHtml(file.path)}', '${file.file_type}')">
-                <div class="file-icon">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
+            <div class="file-main" onclick="handleFileClick('${escapeHtml(file.path)}', '${file.file_type}', event)">
+                <div class="file-icon ${file.file_type === "dir" ? "folder" : ""}">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
                 <div>
                     <div class="file-name">${escapeHtml(file.name)}</div>
                     <div class="file-meta">${file.file_type === "file" ? formatSize(file.size) : "文件夹"}</div>
@@ -204,7 +204,7 @@ function renderFiles(files) {
                 ${
                   file.file_type === "dir"
                     ? `
-                    <button class="action-btn" onclick="enterFolder('${escapeHtml(file.path)}')" title="打开">
+                    <button class="action-btn" onclick="enterFolderWithAnimation('${escapeHtml(file.path)}')" title="打开">
                         <i class="ti ti-folder-open"></i>
                     </button>
                 `
@@ -226,6 +226,58 @@ function renderFiles(files) {
       )
       .join("")}
   `;
+}
+
+/**
+ * 双击处理
+ * @param {string} path - 路径
+ * @param {string} type - 类型
+ */
+function handleDoubleClick(path, type) {
+  if (type === "dir") {
+    enterFolder(path);
+  } else {
+    previewFile(path, path.split("/").pop());
+  }
+}
+
+/**
+ * 单击处理 - 文件夹直接进入，文件选中
+ * @param {string} path - 路径
+ * @param {string} type - 类型
+ * @param {Event} event - 事件对象
+ */
+function handleFileClick(path, type, event) {
+  // 如果点击了操作按钮，不触发此处理
+  if (event.target.closest(".file-actions")) {
+    return;
+  }
+
+  if (type === "dir") {
+    // 文件夹：进入并添加动画
+    enterFolderWithAnimation(path);
+  }
+}
+
+/**
+ * 进入文件夹并添加动画效果
+ * @param {string} path - 路径
+ */
+function enterFolderWithAnimation(path) {
+  const fileList = document.getElementById("fileList");
+  if (!fileList) return;
+
+  // 添加进入动画类
+  fileList.classList.add("nav-entering");
+
+  // 执行导航
+  navigateTo(path);
+  updateBreadcrumb();
+
+  // 动画结束后移除类
+  setTimeout(() => {
+    fileList.classList.remove("nav-entering");
+  }, 400);
 }
 
 /**

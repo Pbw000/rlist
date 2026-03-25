@@ -95,12 +95,8 @@ pub trait Storage: Send + Sync {
     type Error: Send + Sync + Error + 'static + Into<RlistError> + From<String>;
     type End2EndCopyMeta: Send + Debug;
     type End2EndMoveMeta: Send + Debug;
-
-    /// 存储名称（人类可读）
     fn name(&self) -> &str;
     fn hash(&self) -> u64;
-
-    /// 驱动名称（标识符）
     fn driver_name(&self) -> &str {
         self.name()
     }
