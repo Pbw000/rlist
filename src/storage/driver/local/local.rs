@@ -7,7 +7,7 @@ use std::future::Future;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 
 #[derive(Debug, Clone)]
 pub struct LocalStorage {
@@ -194,42 +194,36 @@ impl Storage for LocalStorage {
         ))
     }
 
-    fn download_file(
-        &self,
-        path: &str,
-    ) -> impl Future<Output = Result<Box<dyn FileContent>, Self::Error>> + Send {
-        async move {
-            let normalized = self.normalize_path(path)?;
-            let metadata = std::fs::metadata(&normalized)
-                .map_err(|e| StorageError::NotFound(e.to_string()))?;
+    async fn download_file(&self, path: &str) -> Result<Box<dyn FileContent>, Self::Error> {
+        let normalized = self.normalize_path(path)?;
+        let metadata =
+            std::fs::metadata(&normalized).map_err(|e| StorageError::NotFound(e.to_string()))?;
 
-            let mut file = File::open(&normalized)
+        let mut file = File::open(&normalized)
+            .await
+            .map_err(|e| StorageError::NotFound(e.to_string()))?;
+        let mut check_sum = Context::new(&SHA256);
+        let mut buffer = [0; 1024];
+
+        loop {
+            let bytes_read = file
+                .read(&mut buffer)
                 .await
-                .map_err(|e| StorageError::NotFound(e.to_string()))?;
-            let mut check_sum = Context::new(&SHA256);
-            let mut buffer = [0; 1024];
-
-            loop {
-                let bytes_read = file
-                    .read(&mut buffer)
-                    .await
-                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-                if bytes_read == 0 {
-                    break;
-                }
-                check_sum.update(&buffer[..bytes_read]);
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+            if bytes_read == 0 {
+                break;
             }
-
-            let file = File::open(&normalized)
-                .await
-                .map_err(|e| StorageError::NotFound(e.to_string()))?;
-            let reader: Box<dyn FileContent> = Box::new(LocalFileReader::new(
-                file,
-                Some(metadata.len()),
-                hex::encode(check_sum.finish()),
-            ));
-            Ok(reader)
+            check_sum.update(&buffer[..bytes_read]);
         }
+        file.seek(SeekFrom::Start(0))
+            .await
+            .map_err(|e| StorageError::OperationFailed(format!("Seek to 0 failed!: {}", e)))?;
+        let reader: Box<dyn FileContent> = Box::new(LocalFileReader::new(
+            file,
+            Some(metadata.len()),
+            hex::encode(check_sum.finish()),
+        ));
+        Ok(reader)
     }
 
     fn create_folder(

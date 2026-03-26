@@ -376,23 +376,20 @@ impl Storage for McloudStorage {
             let parent_path = parts[..parts.len() - 1].join("/");
             self.get_file_id_by_path(&parent_path)
                 .await
-                .unwrap_or_else(|| "root".to_string())
+                .unwrap_or_else(|| "/".to_string())
         } else {
-            "root".to_string()
+            "/".to_string()
         };
 
-        let file_size = param.size;
-        // dbg!(&param);
+        dbg!(&param);
         // 1. 创建文件记录
         let create_result = self
-            .create_upload_record(&parent_file_id, file_name, file_size, &param.hash)
+            .create_upload_record(&parent_file_id, file_name, param.size, &param.hash)
             .await?;
 
         if !create_result.upload_url.is_empty() {
             self.upload_to_eos(&create_result.upload_url, content)
                 .await?;
-
-            // 3. 提交上传
             self.complete_upload(
                 path,
                 &create_result.upload_id,
@@ -429,9 +426,9 @@ impl Storage for McloudStorage {
                 // 从缓存获取父目录 file_id
                 self.get_file_id_by_path(&parent_path)
                     .await
-                    .unwrap_or_else(|| "root".to_string())
+                    .unwrap_or_else(|| "/".to_string())
             } else {
-                "root".to_string()
+                "/".to_string()
             };
 
             // 1. 创建文件记录，获取上传 URL
@@ -1089,7 +1086,7 @@ impl McloudStorage {
         let response: CreateUploadData = self
             .json_request_with_response(Method::POST, "/file/create", &request)
             .await?;
-        // dbg!(&response);
+        dbg!(&response);
 
         // 检查是否是秒传（hash 命中缓存）
         if response.rapidUpload == Some(true)
@@ -1143,6 +1140,8 @@ impl McloudStorage {
             .client
             .put(upload_url)
             .header("Content-Type", "application/octet-stream")
+            .header("Origin", "https://yun.139.com")
+            .header("Referer", "https://yun.139.com/")
             .body(body)
             .send()
             .await?;

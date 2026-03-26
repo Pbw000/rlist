@@ -88,7 +88,7 @@ async fn run_server(
 
     state.build_cache("/").await?;
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("localhost:{}", port);
     tracing::info!("Starting server on {}", addr);
     start_server(state, &addr).await?;
 

@@ -45,22 +45,20 @@ pub fn verify_token<T: Serialize + DeserializeOwned>(
     token: &str,
     secret: &[u8],
 ) -> Result<T, AuthError> {
-    let claim = decode::<Claims>(
+    let claim = match decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret),
         &Validation::new(Algorithm::HS512),
-    )
-    .map_err(|_| AuthError::TokenVerificationFailed)?;
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System Time Exception")
-        .as_secs() as usize;
-    if claim.claims.exp > now {
-        hex::decode(&claim.claims.sub)
-            .map_err(|_| AuthError::InvalidToken)
-            .and_then(|bytes| postcard::from_bytes(&bytes).map_err(|_| AuthError::InvalidToken))
-    } else {
-        Err(AuthError::ExpiredToken)
-    }
+    ) {
+        Ok(claim) => claim,
+        Err(e) => match e.kind() {
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                return Err(AuthError::ExpiredToken);
+            }
+            _ => return Err(AuthError::InvalidToken),
+        },
+    };
+    hex::decode(&claim.claims.sub)
+        .map_err(|_| AuthError::InvalidToken)
+        .and_then(|bytes| postcard::from_bytes(&bytes).map_err(|_| AuthError::InvalidToken))
 }

@@ -1,0 +1,14 @@
+[public_registry]
+drivers = []
+
+[[private_registry.drivers]]
+path = "mcloud"
+
+[private_registry.drivers.config.Mcloud]
+token = "cGM6MTM4ODA2MzAzMDk6ZEpjUHBYbEx8MXxSQ1N8MTc3NjY3NTUyMzc3N3xiT1hRRTZ2eUdKSWYuUnVTd3RHdlY1NWo2N2t5Z2NidTNtbnVuUW5sWTRQRDNicm01aWo2VjB6NmcxWm0wQzBDOG5Qdkl6VWhDMjgzc3NrTjdyOFI2eTJYelQxX3pQenJkdE8zbzNQX2s4V2FKUEFnLnNoemY2MHF0VHJRcU9iWUhaVU4wUlI3T1BkNzYxS2pEUS5fTEdfNGhaYUIuWjJ0T05KakRESEIxQTQt"
+
+[[private_registry.drivers]]
+path = "local"
+
+[private_registry.drivers.config.LocalStorage]
+root_dir = "D:/datasets"

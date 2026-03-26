@@ -196,10 +196,6 @@ pub trait Storage: Send + Sync {
     {
         async move { Ok(None) }
     }
-
-    /// 上传文件（中继模式）
-    /// 文件内容通过服务器中转上传到存储端
-    /// 使用流式上传，支持大文件
     fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
         &self,
         path: &str,
