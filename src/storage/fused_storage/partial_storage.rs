@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::Storage;
 use crate::storage::model::{FileContent, FileList, FileMeta, UploadInfo, UploadInfoParams};
 
@@ -49,12 +51,28 @@ impl<T: Storage> PartialStorage<T> {
         format!("/{}/{}", self.prefix_path, path.trim_start_matches('/'))
     }
 }
+/// Configuration metadata for storage
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ConfigMeta<T: Storage> {
+    pub prefix_path: String,
+    pub read_only: bool,
+    pub storage_meta: T::ConfigMeta,
+}
 
+impl<T: Storage> Default for ConfigMeta<T> {
+    fn default() -> Self {
+        Self {
+            prefix_path: String::from("/"),
+            read_only: true,
+            storage_meta: Default::default(),
+        }
+    }
+}
 impl<T: Storage> Storage for PartialStorage<T> {
     type Error = T::Error;
     type End2EndCopyMeta = T::End2EndCopyMeta;
     type End2EndMoveMeta = T::End2EndMoveMeta;
-    type ConfigMeta = T::ConfigMeta;
+    type ConfigMeta = ConfigMeta<T>;
     fn hash(&self) -> u64 {
         self.inner.hash()
     }
@@ -202,11 +220,11 @@ impl<T: Storage> Storage for PartialStorage<T> {
     where
         Self: Sized,
     {
-        let inner = T::from_auth_data(data)?;
+        let inner = T::from_auth_data(data.storage_meta)?;
         Ok(Self {
             inner,
-            prefix_path: String::new(),
-            read_only: false,
+            prefix_path: data.prefix_path,
+            read_only: data.read_only,
         })
     }
 
@@ -214,6 +232,6 @@ impl<T: Storage> Storage for PartialStorage<T> {
     where
         Self: Sized,
     {
-        self.inner.auth_template()
+        Self::ConfigMeta::default()
     }
 }

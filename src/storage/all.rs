@@ -14,4 +14,10 @@ impl_storage_enum! {
     extension: PartialStorage
 }
 
+impl Default for AllDriverConfigMeta {
+    fn default() -> Self {
+        AllDriverConfigMeta::Mcloud(<McloudStorage as crate::Storage>::ConfigMeta::default())
+    }
+}
+
 pub type StorageRegistry = FusedStorage<AllDriver>;

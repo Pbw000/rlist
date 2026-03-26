@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{RlistError, StorageError};
@@ -138,18 +139,106 @@ impl<T: Storage + 'static> FusedStorage<T> {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-struct DriverMeta<T: Storage> {
+pub struct DriverMeta<T: Storage>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
     path: String,
     config: T::ConfigMeta,
 }
 
-#[derive(Deserialize, Serialize)]
-struct ConfigMeta<T: Storage> {
+impl<T: Storage> Serialize for DriverMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("DriverMeta", 2)?;
+        state.serialize_field("path", &self.path)?;
+        state.serialize_field("config", &self.config)?;
+        state.end()
+    }
+}
+
+impl<'de, T: Storage> Deserialize<'de> for DriverMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<C> {
+            path: String,
+            config: C,
+        }
+        let helper = Helper::deserialize(deserializer)?;
+        Ok(DriverMeta {
+            path: helper.path,
+            config: helper.config,
+        })
+    }
+}
+
+pub struct ConfigMeta<T: Storage> {
     drivers: Vec<DriverMeta<T>>,
 }
 
-impl<T: Storage> Default for ConfigMeta<T> {
+impl<T: Storage> Serialize for ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("ConfigMeta", 1)?;
+        state.serialize_field("drivers", &self.drivers)?;
+        state.end()
+    }
+}
+
+impl<'de, T: Storage> Deserialize<'de> for ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<C> {
+            drivers: Vec<DriverMetaWithConfig<C>>,
+        }
+
+        #[derive(Deserialize)]
+        struct DriverMetaWithConfig<C> {
+            path: String,
+            config: C,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        let drivers = helper
+            .drivers
+            .into_iter()
+            .map(|d| DriverMeta {
+                path: d.path,
+                config: d.config,
+            })
+            .collect();
+        Ok(ConfigMeta { drivers })
+    }
+}
+
+impl<T: Storage> Default for ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
     fn default() -> Self {
         Self {
             drivers: vec![DriverMeta {
@@ -159,7 +248,10 @@ impl<T: Storage> Default for ConfigMeta<T> {
         }
     }
 }
-impl<T: Storage + 'static> Storage for FusedStorage<T> {
+impl<T: Storage + 'static> Storage for FusedStorage<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
     type Error = RlistError;
     type End2EndCopyMeta = T::End2EndCopyMeta;
     type End2EndMoveMeta = T::End2EndMoveMeta;
@@ -455,8 +547,8 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         }
     }
 
-    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error> {
-        Self::new()
+    fn from_auth_data(_data: Self::ConfigMeta) -> Result<Self, Self::Error> {
+        Ok(Self::new())
     }
 
     fn auth_template(&self) -> Self::ConfigMeta {

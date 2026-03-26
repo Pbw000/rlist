@@ -35,6 +35,20 @@ macro_rules! impl_storage_enum {
                 $($variant(<$ty as $crate::Storage>::End2EndMoveMeta),)+
             }
 
+            // 生成 ConfigMeta 枚举 - 包含普通驱动和 extension 的配置
+            #[allow(non_camel_case_types)]
+            #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+            pub enum [<$enum_name ConfigMeta>] {
+                // 普通驱动配置
+                $($variant(<$ty as $crate::Storage>::ConfigMeta),)+
+                // 扩展驱动配置
+                $(
+                    [<$variant $ext>](<$ext<$ty> as $crate::Storage>::ConfigMeta),
+                )+
+            }
+
+            // Default 实现手动在外部添加，避免宏展开问题
+
             // 生成 From 实现（普通驱动）
             $(
                 impl From<$ty> for $enum_name {
@@ -58,6 +72,7 @@ macro_rules! impl_storage_enum {
                 type Error = $error_type;
                 type End2EndCopyMeta = [<$enum_name End2EndCopyMeta>];
                 type End2EndMoveMeta = [<$enum_name End2EndMoveMeta>];
+                type ConfigMeta = [<$enum_name ConfigMeta>];
 
                 fn hash(&self) -> u64 {
                     match self {
@@ -352,28 +367,31 @@ macro_rules! impl_storage_enum {
                     }
                 }
 
-                fn from_auth_data(json: &str) -> Result<Self, Self::Error>
+                fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error>
                 where
                     Self: Sized,
                 {
-                    $(
-                        if let Ok(storage) = <$ty>::from_auth_data(json) {
-                            return Ok($enum_name::$variant(storage));
-                        }
-                    )+
-                    Err($crate::error::RlistError::Storage(
-                        $crate::error::StorageError::InvalidConfig("无法从认证数据初始化存储".to_string()),
-                    ))
+                    match data {
+                        $([<$enum_name ConfigMeta>]::$variant(config) => {
+                            <$ty>::from_auth_data(config).map_err(|e| Into::<$error_type>::into(e)).map($enum_name::$variant)
+                        },)+
+                        $(
+                            [<$enum_name ConfigMeta>]::[<$variant $ext>](config) => {
+                                <$ext<$ty>>::from_auth_data(config).map_err(|e| Into::<$error_type>::into(e)).map($enum_name::[<$variant $ext>])
+                            }
+                        )+
+                    }
                 }
 
-                fn auth_template(&self) -> String
+                fn auth_template(&self) -> Self::ConfigMeta
                 where
                     Self: Sized,
                 {
                     match self {
-                        $($enum_name::$variant(driver) => <$ty as $crate::Storage>::auth_template(driver),)+
+                        $($enum_name::$variant(driver) => [<$enum_name ConfigMeta>]::$variant(<$ty as $crate::Storage>::auth_template(driver)),)+
                         $(
-                            $enum_name::[<$variant $ext>](driver) => <$ext<$ty> as $crate::Storage>::auth_template(driver),
+                            // 对于 extension 类型，使用它们自己的 ConfigMeta
+                            $enum_name::[<$variant $ext>](driver) => [<$enum_name ConfigMeta>]::[<$variant $ext>](<$ext<$ty> as $crate::Storage>::auth_template(driver)),
                         )+
                     }
                 }
@@ -405,6 +423,15 @@ macro_rules! impl_storage_enum {
             $($variant(<$ty as $crate::Storage>::End2EndMoveMeta),)+
         }
 
+        // 生成 ConfigMeta 枚举
+        #[allow(non_camel_case_types)]
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        pub enum [<$enum_name ConfigMeta>] {
+            $($variant(<$ty as $crate::Storage>::ConfigMeta),)+
+        }
+
+        // Default 实现手动在外部添加，避免宏展开问题
+
         // 生成 From 实现
         $(
             impl From<$ty> for $enum_name {
@@ -419,6 +446,7 @@ macro_rules! impl_storage_enum {
             type Error = $error_type;
             type End2EndCopyMeta = [<$enum_name End2EndCopyMeta>];
             type End2EndMoveMeta = [<$enum_name End2EndMoveMeta>];
+            type ConfigMeta = [<$enum_name ConfigMeta>];
 
             fn hash(&self) -> u64 {
                 match self {
@@ -601,26 +629,23 @@ macro_rules! impl_storage_enum {
                 }
             }
 
-            fn from_auth_data(json: &str) -> Result<Self, Self::Error>
+            fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error>
             where
                 Self: Sized,
             {
-                $(
-                    if let Ok(storage) = <$ty>::from_auth_data(json) {
-                        return Ok($enum_name::$variant(storage));
-                    }
-                )+
-                Err($crate::error::RlistError::Storage(
-                    $crate::error::StorageError::InvalidConfig("无法从认证数据初始化存储".to_string()),
-                ))
+                match data {
+                    $([<$enum_name ConfigMeta>]::$variant(config) => {
+                        <$ty>::from_auth_data(config).map_err(|e| Into::<$error_type>::into(e)).map($enum_name::$variant)
+                    },)+
+                }
             }
 
-            fn auth_template(&self) -> String
+            fn auth_template(&self) -> Self::ConfigMeta
             where
                 Self: Sized,
             {
                 match self {
-                    $($enum_name::$variant(driver) => <$ty as $crate::Storage>::auth_template(driver),)+
+                    $($enum_name::$variant(driver) => [<$enum_name ConfigMeta>]::$variant(<$ty as $crate::Storage>::auth_template(driver)),)+
                 }
             }
         }

@@ -40,7 +40,7 @@ pub struct McloudStorage {
     /// 缓存 path -> file_id
     path_cache: RwLock<RadixTree<CacheEntry>>,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ConfigMeta {
     token: String,
 }

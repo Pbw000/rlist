@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 
+#[derive(Debug, Clone)]
 pub struct LocalStorage {
     root: PathBuf,
 }
@@ -114,7 +115,7 @@ impl FileContent for LocalFileReader {
         &self.hash
     }
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ConfigMeta {
     root_dir: String,
 }
