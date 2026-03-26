@@ -39,43 +39,44 @@ impl From<String> for RlistError {
 /// 存储后端相关错误
 #[derive(Error, Debug)]
 pub enum StorageError {
-    #[error("存储未找到：{0}")]
+    #[error("❌ 存储未找到: {0}")]
     NotFound(String),
 
-    #[error("存储已存在：{0}")]
+    #[error("⚠️ 存储已存在: {0}")]
     AlreadyExists(String),
 
-    #[error("权限拒绝：{0}")]
+    #[error("⛔ 权限拒绝: {0}")]
     PermissionDenied(String),
 
-    #[error("存储配置无效：{0}")]
+    #[error("⚙️ 存储配置无效: {0}")]
     InvalidConfig(String),
 
-    #[error("存储操作失败：{0}")]
+    #[error("💥 存储操作失败: {0}")]
     OperationFailed(String),
 
-    #[error("不支持的操作：{0}")]
+    #[error("🚫 不支持的操作: {0}")]
     Unsupported(String),
 
-    #[error("{0}")]
+    #[error("❓ {0}")]
     Custom(String),
 }
+
 /// 网络相关错误
 #[derive(Error, Debug)]
 pub enum NetworkError {
-    #[error("请求失败：{0}")]
+    #[error("📡 请求失败: {0}")]
     RequestFailed(String),
 
-    #[error("连接超时：{0}")]
+    #[error("⏱️ 连接超时: {0}")]
     Timeout(String),
 
-    #[error("无效 URL: {0}")]
+    #[error("🔗 无效 URL: {0}")]
     InvalidUrl(String),
 
-    #[error("HTTP 错误：{0}")]
+    #[error("🌐 HTTP 错误: {0}")]
     Http(String),
 
-    #[error("TLS 错误：{0}")]
+    #[error("🔒 TLS 错误: {0}")]
     TlsError(String),
 }
 

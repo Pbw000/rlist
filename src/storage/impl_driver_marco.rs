@@ -37,7 +37,7 @@ macro_rules! impl_storage_enum {
 
             // 生成 ConfigMeta 枚举 - 包含普通驱动和 extension 的配置
             #[allow(non_camel_case_types)]
-            #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, strum::EnumMessage, strum::EnumIter)]
             pub enum [<$enum_name ConfigMeta>] {
                 // 普通驱动配置
                 $($variant(<$ty as $crate::Storage>::ConfigMeta),)+
@@ -45,6 +45,73 @@ macro_rules! impl_storage_enum {
                 $(
                     [<$variant $ext>](<$ext<$ty> as $crate::Storage>::ConfigMeta),
                 )+
+            }
+
+            // 为 ConfigMeta 生成辅助方法
+            impl [<$enum_name ConfigMeta>] {
+                /// 获取驱动名称（用于 URL 和解析）
+                #[allow(non_upper_case_globals)]
+                pub fn driver_name(&self) -> &'static str {
+                    match self {
+                        $([<$enum_name ConfigMeta>]::$variant(_) => {
+                            paste::paste! {
+                                {
+                                    const [<S_ $variant:lower>]: &str = stringify!($variant);
+                                    [<S_ $variant:lower>]
+                                }
+                            }
+                        },)+
+                        $(
+                            [<$enum_name ConfigMeta>]::[<$variant $ext>](_) => {
+                                paste::paste! {
+                                    {
+                                        const [<S_ $variant:lower _partial>]: &str = concat!(stringify!($variant), "_partial");
+                                        [<S_ $variant:lower _partial>]
+                                    }
+                                }
+                            }
+                        )+
+                    }
+                }
+
+                /// 获取配置模板 JSON
+                pub fn get_template_json(&self) -> serde_json::Value {
+                    match self {
+                        $([<$enum_name ConfigMeta>]::$variant(_) => {
+                            serde_json::to_value(<$ty as $crate::Storage>::auth_template()).unwrap_or_default()
+                        },)+
+                        $(
+                            [<$enum_name ConfigMeta>]::[<$variant $ext>](_) => {
+                                serde_json::to_value(<$ext<$ty> as $crate::Storage>::auth_template()).unwrap_or_default()
+                            }
+                        )+
+                    }
+                }
+            }
+
+            // 手动实现 FromStr 以支持 driver_name() 的解析
+            impl std::str::FromStr for [<$enum_name ConfigMeta>] {
+                type Err = String;
+
+                fn from_str(s: &str) -> Result<Self, Self::Err> {
+                    paste::paste! {
+                        $(
+                            if s == stringify!($variant) {
+                                return Ok([<$enum_name ConfigMeta>]::$variant(
+                                    <$ty as $crate::Storage>::ConfigMeta::default()
+                                ));
+                            }
+                        )+
+                        $(
+                            if s == concat!(stringify!($variant), "_partial") {
+                                return Ok([<$enum_name ConfigMeta>]::[<$variant $ext>](
+                                    <$ext<$ty> as $crate::Storage>::ConfigMeta::default()
+                                ));
+                            }
+                        )+
+                        Err(format!("未知的存储驱动：{}", s))
+                    }
+                }
             }
 
             // Default 实现手动在外部添加，避免宏展开问题
@@ -383,17 +450,11 @@ macro_rules! impl_storage_enum {
                     }
                 }
 
-                fn auth_template(&self) -> Self::ConfigMeta
+                fn auth_template() -> Self::ConfigMeta
                 where
                     Self: Sized,
                 {
-                    match self {
-                        $($enum_name::$variant(driver) => [<$enum_name ConfigMeta>]::$variant(<$ty as $crate::Storage>::auth_template(driver)),)+
-                        $(
-                            // 对于 extension 类型，使用它们自己的 ConfigMeta
-                            $enum_name::[<$variant $ext>](driver) => [<$enum_name ConfigMeta>]::[<$variant $ext>](<$ext<$ty> as $crate::Storage>::auth_template(driver)),
-                        )+
-                    }
+                    Self::ConfigMeta::default()
                 }
             }
         }
@@ -425,9 +486,36 @@ macro_rules! impl_storage_enum {
 
         // 生成 ConfigMeta 枚举
         #[allow(non_camel_case_types)]
-        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, strum::EnumString, strum::EnumMessage, strum::EnumIter)]
         pub enum [<$enum_name ConfigMeta>] {
             $($variant(<$ty as $crate::Storage>::ConfigMeta),)+
+        }
+
+        // 为 ConfigMeta 生成辅助方法
+        impl [<$enum_name ConfigMeta>] {
+            /// 获取驱动名称（用于 URL 和解析）
+            #[allow(non_upper_case_globals)]
+            pub fn driver_name(&self) -> &'static str {
+                match self {
+                    $([<$enum_name ConfigMeta>]::$variant(_) => {
+                        paste::paste! {
+                            {
+                                const [<S_ $variant:lower>]: &str = stringify!($variant);
+                                [<S_ $variant:lower>]
+                            }
+                        }
+                    },)+
+                }
+            }
+
+            /// 获取配置模板 JSON
+            pub fn get_template_json(&self) -> serde_json::Value {
+                match self {
+                    $([<$enum_name ConfigMeta>]::$variant(_) => {
+                        serde_json::to_value(<$ty as $crate::Storage>::auth_template()).unwrap_or_default()
+                    },)+
+                }
+            }
         }
 
         // Default 实现手动在外部添加，避免宏展开问题
@@ -640,13 +728,11 @@ macro_rules! impl_storage_enum {
                 }
             }
 
-            fn auth_template(&self) -> Self::ConfigMeta
+            fn auth_template() -> Self::ConfigMeta
             where
                 Self: Sized,
             {
-                match self {
-                    $($enum_name::$variant(driver) => [<$enum_name ConfigMeta>]::$variant(<$ty as $crate::Storage>::auth_template(driver)),)+
-                }
+                Self::ConfigMeta::default()
             }
         }
     };

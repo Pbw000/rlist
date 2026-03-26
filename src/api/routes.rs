@@ -45,8 +45,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         ));
 
     let download_routes = Router::new()
-        .route("/fs/get", get(public::get_file))
-        .route("/fs/download", get(public::download_file))
+        .route("/fs/get", get(user::get_file))
+        .route("/fs/download", get(user::download_file))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -117,10 +117,13 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             },
             auth_permission_middleware,
         ));
-
+    let public_download_routes = Router::new()
+        .route("/public/fs/get", get(public::get_file))
+        .route("/public/fs/download", get(public::download_file));
     // 合并所有文件系统路由
     let fs_routes = list_routes
         .merge(download_routes)
+        .merge(public_download_routes)
         .merge(upload_routes)
         .merge(mkdir_routes)
         .merge(remove_routes)
@@ -137,7 +140,13 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             "/admin/user/permissions",
             post(admin::update_user_permissions),
         )
+        // 存储管理路由
         .route("/admin/storage/list", get(user::list_storages))
+        .route("/admin/storage/drivers", get(admin::get_storage_drivers))
+        .route(
+            "/admin/storage/template/{driver}",
+            get(admin::get_storage_template),
+        )
         .route("/admin/storage/add", post(admin::add_storage))
         .route(
             "/admin/storage/pub/delete/{index}",

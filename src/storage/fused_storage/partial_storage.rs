@@ -228,7 +228,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
         })
     }
 
-    fn auth_template(&self) -> Self::ConfigMeta
+    fn auth_template() -> Self::ConfigMeta
     where
         Self: Sized,
     {

@@ -551,7 +551,7 @@ where
         Ok(Self::new())
     }
 
-    fn auth_template(&self) -> Self::ConfigMeta {
+    fn auth_template() -> Self::ConfigMeta {
         Self::ConfigMeta::default()
     }
 }

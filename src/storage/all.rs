@@ -20,4 +20,20 @@ impl Default for AllDriverConfigMeta {
     }
 }
 
+impl AllDriverConfigMeta {
+    /// 获取所有可用的存储驱动列表
+    pub fn all_drivers() -> Vec<crate::api::types::StorageDriverInfo> {
+        use strum::{EnumMessage, IntoEnumIterator};
+        AllDriverConfigMeta::iter()
+            .map(|driver| crate::api::types::StorageDriverInfo {
+                value: driver.driver_name().to_string(),
+                label: driver
+                    .get_message()
+                    .unwrap_or(&driver.driver_name())
+                    .to_string(),
+            })
+            .collect()
+    }
+}
+
 pub type StorageRegistry = FusedStorage<AllDriver>;

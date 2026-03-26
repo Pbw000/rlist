@@ -378,27 +378,28 @@
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label><i class="ti ti-tag"></i> 存储名称</label>
+                        <label><i class="ti ti-tag"></i> 存储前缀</label>
                         <input
                             type="text"
-                            id="storageName"
-                            placeholder="请输入存储名称"
+                            id="storagePrefix"
+                            placeholder="例如：mycloud"
                         />
                     </div>
                     <div class="form-group">
                         <label><i class="ti ti-truck"></i> 存储驱动</label>
-                        <select id="storageDriver">
-                            <option value="local">本地存储</option>
-                            <option value="mcloud">MCloud 存储</option>
+                        <select id="storageDriver" onchange="onDriverChange()">
+                            <option value="">请选择驱动</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label><i class="ti ti-folder"></i> 存储路径</label>
-                        <input
-                            type="text"
-                            id="storagePath"
-                            placeholder="请输入存储路径"
-                        />
+                        <label><i class="ti ti-settings"></i> 存储配置</label>
+                        <div id="storageConfigContainer"></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="permission-checkbox">
+                            <input type="checkbox" id="storagePublic" />
+                            <span>公开存储（无需认证即可访问）</span>
+                        </label>
                     </div>
                 </div>
                 <div class="modal-footer">

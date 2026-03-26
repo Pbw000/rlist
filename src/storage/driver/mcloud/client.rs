@@ -42,7 +42,7 @@ pub struct McloudStorage {
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ConfigMeta {
-    token: String,
+    pub token: String,
 }
 impl Default for ConfigMeta {
     fn default() -> Self {
@@ -532,7 +532,7 @@ impl Storage for McloudStorage {
         Ok(Self::from_authorization(data.token))
     }
 
-    fn auth_template(&self) -> Self::ConfigMeta
+    fn auth_template() -> Self::ConfigMeta
     where
         Self: Sized,
     {

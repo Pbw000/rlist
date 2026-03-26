@@ -117,7 +117,7 @@ impl FileContent for LocalFileReader {
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ConfigMeta {
-    root_dir: String,
+    pub root_dir: String,
 }
 impl Default for ConfigMeta {
     fn default() -> Self {
@@ -188,10 +188,16 @@ impl Storage for LocalStorage {
         }
     }
 
-    fn get_download_meta_by_path(
+    async fn get_download_meta_by_path(&self, _: &str) -> Result<DownloadableMeta, Self::Error> {
+        Err(StorageError::Unsupported(
+            "Direct download mode not supported for local disk!".to_owned(),
+        ))
+    }
+
+    fn download_file(
         &self,
         path: &str,
-    ) -> impl Future<Output = Result<DownloadableMeta, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<Box<dyn FileContent>, Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(path)?;
             let metadata = std::fs::metadata(&normalized)
@@ -214,36 +220,13 @@ impl Storage for LocalStorage {
                 check_sum.update(&buffer[..bytes_read]);
             }
 
-            // 生成 API 下载端点 URL
-            let download_url = format!("/api/fs/download?path={}", path);
-
-            Ok(DownloadableMeta {
-                download_url,
-                size: metadata.len(),
-                hash: hex::encode(check_sum.finish()),
-            })
-        }
-    }
-
-    fn download_file(
-        &self,
-        path: &str,
-    ) -> impl Future<Output = Result<Box<dyn FileContent>, Self::Error>> + Send {
-        async move {
-            let normalized = self.normalize_path(path)?;
-            let metadata = std::fs::metadata(&normalized)
-                .map_err(|e| StorageError::NotFound(e.to_string()))?;
-
-            // 获取文件 hash
-            let download_meta = self.get_download_meta_by_path(path).await?;
-
             let file = File::open(&normalized)
                 .await
                 .map_err(|e| StorageError::NotFound(e.to_string()))?;
             let reader: Box<dyn FileContent> = Box::new(LocalFileReader::new(
                 file,
                 Some(metadata.len()),
-                download_meta.hash,
+                hex::encode(check_sum.finish()),
             ));
             Ok(reader)
         }
@@ -293,27 +276,24 @@ impl Storage for LocalStorage {
         }
     }
 
-    fn copy_end_to_end(
-        &self,
-        source_meta: Meta,
-        dest_path: &str,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            // source_meta 包含文件名，但 LocalStorage 需要完整路径
-            // 这里假设 meta 的名称字段就是相对于 root 的路径
-            let source = self.normalize_path(source_meta.name())?;
-            let dest = self.normalize_path(dest_path)?;
+    async fn copy_end_to_end(&self, source_meta: Meta, dest_path: &str) -> Result<(), Self::Error> {
+        // source_meta 包含文件名，但 LocalStorage 需要完整路径
+        // 这里假设 meta 的名称字段就是相对于 root 的路径
+        let source = self.normalize_path(source_meta.name())?;
+        let dest = self.normalize_path(dest_path)?;
 
-            if source.is_dir() {
-                copy_dir_recursive(&source, &dest)
-                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-            } else {
-                std::fs::copy(&source, &dest)
-                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-            }
-
-            Ok(())
+        if source.is_dir() {
+            tokio::task::spawn_blocking(move || copy_dir_recursive(&source, &dest))
+                .await
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+        } else {
+            tokio::fs::copy(&source, &dest)
+                .await
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
         }
+
+        Ok(())
     }
 
     fn gen_copy_meta(
@@ -400,7 +380,7 @@ impl Storage for LocalStorage {
         Ok(Self::new(path))
     }
 
-    fn auth_template(&self) -> Self::ConfigMeta
+    fn auth_template() -> Self::ConfigMeta
     where
         Self: Sized,
     {

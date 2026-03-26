@@ -333,7 +333,7 @@ async function loadStorages() {
   const tbody = document.getElementById("storagesTableBody");
   tbody.innerHTML = `
     <tr>
-      <td colspan="4" class="empty-cell">
+      <td colspan="5" class="empty-cell">
         <div class="loading">
           <div class="spinner"></div>
           <span>加载中...</span>
@@ -342,9 +342,7 @@ async function loadStorages() {
     </tr>
   `;
 
-  const result = await apiRequest("/admin/storage/list", {
-    method: "GET",
-  });
+  const result = await listStorages();
 
   if (result.code === 200 && result.data) {
     const storages = result.data;
@@ -356,7 +354,7 @@ async function loadStorages() {
 
     if (allStorages.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="4" class="empty-cell">暂无存储</td></tr>';
+        '<tr><td colspan="5" class="empty-cell">暂无存储</td></tr>';
       return;
     }
 
@@ -386,20 +384,37 @@ async function loadStorages() {
       )
       .join("");
   } else {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-cell">加载失败：${result.message || "未知错误"}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">加载失败：${result.message || "未知错误"}</td></tr>`;
   }
 }
 
 /**
  * 显示添加存储模态框
  */
-function showAddStorageModal() {
+async function showAddStorageModal() {
   try {
     document.getElementById("addStorageModal").style.display = "flex";
-    document.getElementById("storageName").value = "";
-    document.getElementById("storageDriver").value = "local";
-    document.getElementById("storagePath").value = "";
-    document.getElementById("storageName").focus();
+    document.getElementById("storagePrefix").value = "";
+    document.getElementById("storagePublic").checked = false;
+
+    // 加载驱动列表
+    const driversResult = await getStorageDrivers();
+    const select = document.getElementById("storageDriver");
+    select.innerHTML = '<option value="">请选择驱动</option>';
+
+    if (driversResult.code === 200 && driversResult.data) {
+      driversResult.data.forEach((driver) => {
+        const option = document.createElement("option");
+        option.value = driver.value;
+        option.textContent = driver.label;
+        select.appendChild(option);
+      });
+      // 保存驱动列表供后续使用
+      window.availableDrivers = driversResult.data.map((d) => d.value);
+    }
+
+    document.getElementById("storageConfigContainer").innerHTML = "";
+    document.getElementById("storagePrefix").focus();
   } catch (error) {
     console.error("显示添加存储模态框失败:", error);
     showToast("操作失败：" + error.message, "error");
@@ -418,27 +433,140 @@ function hideAddStorageModal() {
 }
 
 /**
+ * 驱动变更时加载配置模板
+ */
+async function onDriverChange() {
+  const driver = document.getElementById("storageDriver").value;
+  if (!driver) {
+    document.getElementById("storageConfigContainer").innerHTML = "";
+    return;
+  }
+
+  try {
+    const result = await getStorageTemplate(driver);
+    if (result.code === 200 && result.data && result.data.template) {
+      const template = result.data.template;
+      const configHtml = generateConfigForm(template, driver);
+      document.getElementById("storageConfigContainer").innerHTML = configHtml;
+    } else {
+      document.getElementById("storageConfigContainer").innerHTML =
+        '<p style="color: var(--text-secondary);">无法加载配置模板</p>';
+    }
+  } catch (error) {
+    console.error("加载配置模板失败:", error);
+    document.getElementById("storageConfigContainer").innerHTML =
+      '<p style="color: var(--text-secondary);">加载失败</p>';
+  }
+}
+
+/**
+ * 根据模板生成配置表单（支持嵌套结构）
+ */
+function generateConfigForm(template, driver, parentKey = "") {
+  let html = "";
+  for (const [key, value] of Object.entries(template)) {
+    const fullKey = parentKey ? `${parentKey}.${key}` : key;
+    const labelText = key
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+
+    // 处理嵌套对象
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      html += `
+        <div class="form-group" style="margin-bottom: 16px; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary);">
+          <label style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: block;">${labelText}</label>
+          ${generateConfigForm(value, driver, fullKey)}
+        </div>
+      `;
+    } else {
+      const inputType =
+        typeof value === "string"
+          ? "text"
+          : typeof value === "number"
+            ? "number"
+            : "text";
+      const placeholder =
+        typeof value === "string" ? value : JSON.stringify(value);
+
+      html += `
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label style="font-size: 13px; color: var(--text-secondary);">${labelText}</label>
+          <input
+            type="${inputType}"
+            id="config_${fullKey.replace(/\./g, "_")}"
+            data-key="${fullKey}"
+            placeholder="${placeholder}"
+            style="width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px;"
+          />
+        </div>
+      `;
+    }
+  }
+  return html;
+}
+
+/**
  * 确认添加存储
  */
 async function confirmAddStorage() {
   try {
-    const name = document.getElementById("storageName").value.trim();
+    const prefix = document.getElementById("storagePrefix").value.trim();
     const driver = document.getElementById("storageDriver").value;
-    const path = document.getElementById("storagePath").value.trim();
+    const isPublic = document.getElementById("storagePublic").checked;
 
-    if (!name) {
-      showToast("请输入存储名称", "error");
+    if (!prefix) {
+      showToast("请输入存储前缀", "error");
       return;
     }
 
-    if (!path) {
-      showToast("请输入存储路径", "error");
+    if (!driver) {
+      showToast("请选择存储驱动", "error");
       return;
     }
 
-    // TODO: 实现添加存储 API
-    showToast("添加存储功能开发中", "error");
-    hideAddStorageModal();
+    // 收集配置（支持嵌套）
+    const configInputs = document.querySelectorAll(
+      "#storageConfigContainer input[data-key]",
+    );
+    const flatConfig = {};
+    configInputs.forEach((input) => {
+      const key = input.getAttribute("data-key");
+      const value = input.value.trim();
+      if (value) {
+        flatConfig[key] = value;
+      }
+    });
+
+    // 将扁平配置转换为嵌套对象
+    const config = {};
+    for (const [key, value] of Object.entries(flatConfig)) {
+      const parts = key.split(".");
+      let current = config;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (!(part in current)) {
+          current[part] = {};
+        }
+        current = current[part];
+      }
+      current[parts[parts.length - 1]] = value;
+    }
+
+    // 构建驱动配置对象（动态转换：mcloud -> Mcloud, mcloud_partial -> McloudPartial）
+    const pascalCaseDriver = driver
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join("");
+    const driverConfig = { [pascalCaseDriver]: config };
+
+    const result = await addStorage(prefix, driverConfig, isPublic);
+    if (result.code === 200) {
+      hideAddStorageModal();
+      showToast("存储添加成功", "success");
+      loadStorages();
+    } else {
+      showToast("添加失败：" + result.message, "error");
+    }
   } catch (error) {
     console.error("添加存储失败:", error);
     showToast("添加失败：" + error.message, "error");

@@ -263,8 +263,8 @@ pub trait Storage: Send + Sync {
     where
         Self: Sized;
 
-    /// 认证模板
-    fn auth_template(&self) -> Self::ConfigMeta
+    /// 认证模板（无需实例）
+    fn auth_template() -> Self::ConfigMeta
     where
         Self: Sized;
 }

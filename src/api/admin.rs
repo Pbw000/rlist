@@ -1,8 +1,10 @@
 //! 管理员处理器 - 需要管理员权限
 
 use crate::{
+    Storage,
     api::{state::AppState, types::*},
     auth::challenge::IntoHashContext,
+    storage::all::AllDriver,
 };
 use axum::{
     Json,
@@ -12,13 +14,71 @@ use axum::{
 use ring::digest::SHA512;
 
 use crate::api::types::ApiResponse;
+use crate::storage::all::AllDriverConfigMeta;
+
+/// 获取可用的存储驱动列表
+pub async fn get_storage_drivers() -> impl IntoResponse {
+    let drivers = AllDriverConfigMeta::all_drivers();
+    ApiResponse::success(drivers)
+}
+
+/// 获取存储驱动配置模板
+pub async fn get_storage_template(Path(driver): Path<String>) -> impl IntoResponse {
+    // 解析驱动类型
+    let driver_type: AllDriverConfigMeta = match driver.parse() {
+        Ok(d) => d,
+        Err(_) => return ApiResponse::error(404, format!("未知的存储驱动：{}", driver)),
+    };
+
+    // 使用宏生成的辅助方法获取模板
+    let template = driver_type.get_template_json();
+
+    ApiResponse::success(StorageTemplateResponse {
+        driver: driver_type.driver_name().to_string(),
+        template,
+    })
+}
 
 /// 添加存储
 pub async fn add_storage(
-    State(_state): State<AppState>,
-    Json(_req): Json<StorageConfigRequest>,
+    State(state): State<AppState>,
+    Json(req): Json<AddStorageRequest>,
 ) -> impl IntoResponse {
-    ApiResponse::success(serde_json::json!({"message": "存储添加功能开发中"}))
+    // 验证 prefix 格式
+    let prefix = req.prefix.trim_start_matches('/');
+    if prefix.is_empty() {
+        return ApiResponse::error(400, "存储前缀不能为空".to_string());
+    }
+
+    // 保存驱动名称
+    let driver_name = req.driver.driver_name().to_string();
+
+    // 直接使用请求中的 driver ConfigMeta
+    let config_meta = req.driver;
+
+    // 使用 from_auth_data 创建存储实例
+    let storage = match AllDriver::from_auth_data(config_meta) {
+        Ok(s) => s,
+        Err(e) => return ApiResponse::error(400, format!("初始化存储失败：{}", e)),
+    };
+
+    // 添加到注册表
+    if req.public.unwrap_or(false) {
+        state.add_public_storage(prefix, storage).await;
+    } else {
+        state.add_storage(prefix, storage).await;
+    }
+
+    // 构建缓存
+    if let Err(e) = state.build_cache(&format!("/{}", prefix)).await {
+        tracing::warn!("构建存储缓存失败：{}", e);
+    }
+
+    ApiResponse::success(AddStorageResponse {
+        prefix: format!("/{}", prefix),
+        driver: driver_name,
+        message: "存储添加成功".to_string(),
+    })
 }
 
 pub async fn remove_pub_storage(

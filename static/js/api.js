@@ -540,3 +540,52 @@ async function updatePermissions(username, permissions) {
     }),
   });
 }
+
+/**
+ * 获取存储驱动列表
+ * @returns {Promise<Object>} - 驱动列表结果
+ */
+async function getStorageDrivers() {
+  return await apiRequest("/admin/storage/drivers", {
+    method: "GET",
+  });
+}
+
+/**
+ * 获取存储驱动配置模板
+ * @param {string} driver - 驱动名称
+ * @returns {Promise<Object>} - 模板结果
+ */
+async function getStorageTemplate(driver) {
+  return await apiRequest(`/admin/storage/template/${driver}`, {
+    method: "GET",
+  });
+}
+
+/**
+ * 添加存储
+ * @param {string} prefix - 存储前缀
+ * @param {Object} driver - 驱动配置（AllDriverConfigMeta）
+ * @param {boolean} isPublic - 是否公开
+ * @returns {Promise<Object>} - 添加结果
+ */
+async function addStorage(prefix, driver, isPublic = false) {
+  return await apiRequest("/admin/storage/add", {
+    method: "POST",
+    body: JSON.stringify({
+      prefix,
+      driver,
+      public: isPublic,
+    }),
+  });
+}
+
+/**
+ * 列出存储
+ * @returns {Promise<Object>} - 存储列表结果
+ */
+async function listStorages() {
+  return await apiRequest("/admin/storage/list", {
+    method: "GET",
+  });
+}

@@ -241,3 +241,33 @@ pub struct RegisterResponse {
 pub struct ChallengeResponse {
     pub salt: u64,
 }
+
+/// 存储驱动信息
+#[derive(Debug, Serialize)]
+pub struct StorageDriverInfo {
+    pub value: String,
+    pub label: String,
+}
+
+/// 存储模板响应
+#[derive(Debug, Serialize)]
+pub struct StorageTemplateResponse {
+    pub driver: String,
+    pub template: serde_json::Value,
+}
+
+/// 添加存储请求
+#[derive(Debug, Deserialize)]
+pub struct AddStorageRequest {
+    pub prefix: String,
+    pub driver: crate::storage::all::AllDriverConfigMeta,
+    pub public: Option<bool>,
+}
+
+/// 添加存储响应
+#[derive(Debug, Serialize)]
+pub struct AddStorageResponse {
+    pub prefix: String,
+    pub driver: String,
+    pub message: String,
+}

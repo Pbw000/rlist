@@ -153,7 +153,7 @@ pub async fn get_file(
     State(state): State<AppState>,
     Query(query): Query<FsOperation>,
 ) -> impl IntoResponse {
-    let registry_guard = state.inner.private_registry.read().await;
+    let registry_guard = state.inner.public_registry.read().await;
     match registry_guard.get_download_meta_by_path(&query.path).await {
         Ok(meta) => {
             // 使用存储驱动自己生成的下载 URL
@@ -183,11 +183,8 @@ pub async fn download_file(
     use axum::response::Response;
     use futures_util::stream::StreamExt;
     use tokio_util::io::ReaderStream;
-
-    // 先获取文件元数据（短暂持有锁）
     let (file_name, size, file_content) = {
-        let registry_guard = state.inner.private_registry.read().await;
-
+        let registry_guard = state.inner.public_registry.read().await;
         let meta = match registry_guard.get_meta(&query.path).await {
             Ok(m) => m,
             Err(e) => {
