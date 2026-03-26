@@ -16,7 +16,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let local_storage = LocalStorage::new(r"C:\Users\pang_\Downloads");
     fused.add_driver(local_storage, "/local");
     let result = fused
-        .copy_relay("/local/111.jpg", "/mcloud/target.apk")
+        .copy_relay(
+            "/local/stm32l4xx-hal-master.zip",
+            "/mcloud/stm32l4xx-hal-master.zip",
+        )
         .await;
     println!("Result:{:?}", result);
     Ok(())

@@ -381,14 +381,14 @@ impl Storage for McloudStorage {
             "/".to_string()
         };
 
-        dbg!(&param);
+        // dbg!(&param);
         // 1. 创建文件记录
         let create_result = self
             .create_upload_record(&parent_file_id, file_name, param.size, &param.hash)
             .await?;
 
         if !create_result.upload_url.is_empty() {
-            self.upload_to_eos(&create_result.upload_url, content)
+            self.upload_to_eos(&create_result.upload_url, content, param.size)
                 .await?;
             self.complete_upload(
                 path,
@@ -1086,7 +1086,7 @@ impl McloudStorage {
         let response: CreateUploadData = self
             .json_request_with_response(Method::POST, "/file/create", &request)
             .await?;
-        dbg!(&response);
+        // dbg!(&response);
 
         // 检查是否是秒传（hash 命中缓存）
         if response.rapidUpload == Some(true)
@@ -1127,21 +1127,21 @@ impl McloudStorage {
         &self,
         upload_url: &str,
         content: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+        file_size: u64,
     ) -> Result<(), McloudError> {
         use tokio_util::io::ReaderStream;
 
         // 将 AsyncRead 转换为 Stream
         let stream = ReaderStream::new(content);
-
-        // 使用 reqwest::Body::wrap_stream 包装
         let body = reqwest::Body::wrap_stream(stream);
-
         let response = self
             .client
             .put(upload_url)
             .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", file_size.to_string())
             .header("Origin", "https://yun.139.com")
             .header("Referer", "https://yun.139.com/")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .body(body)
             .send()
             .await?;
