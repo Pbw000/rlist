@@ -982,18 +982,18 @@ function showContextMenu(event, path, type) {
   const actions =
     type === "dir"
       ? `
-        <div class="context-menu-item" onclick="enterFolder('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); enterFolder('${escapeHtml(path)}')">
             <i class="ti ti-folder-open"></i> 打开
         </div>
       `
       : `
-        <div class="context-menu-item" onclick="previewFile('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); previewFile('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
             <i class="ti ti-eye"></i> 预览
         </div>
-        <div class="context-menu-item" onclick="downloadFile('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); downloadFile('${escapeHtml(path)}')">
             <i class="ti ti-download"></i> 下载
         </div>
-        <div class="context-menu-item" onclick="copyShareUrl('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); copyShareUrl('${escapeHtml(path)}')">
             <i class="ti ti-link"></i> 复制分享链接
         </div>
       `;
@@ -1001,7 +1001,7 @@ function showContextMenu(event, path, type) {
   menu.innerHTML = `
     ${actions}
     <div class="context-menu-divider"></div>
-    <div class="context-menu-item" onclick="copyPath('${escapeHtml(path)}')">
+    <div class="context-menu-item" onclick="hideContextMenu(); copyPath('${escapeHtml(path)}')">
         <i class="ti ti-link"></i> 复制路径
     </div>
   `;

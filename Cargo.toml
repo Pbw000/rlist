@@ -28,8 +28,9 @@ tokio = { version = "1.50.0", features = ["full"] }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.16"
 toml = "1.1.0"
-tower = "0.5.2"
-tower-http = { version = "0.6.6", features = [ "auth", "trace", "fs", "timeout"] }
+tower = { version = "0.5.2", features = ["limit"] }
+tower-http = { version = "0.6.6", features = ["auth", "trace", "fs", "timeout", "cors", "limit"] }
+tower_governor = "0.7"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 

@@ -2163,8 +2163,14 @@ async function confirmCopyMove() {
     const srcName =
       selectedPathForAction.split("/").pop() || selectedPathForAction;
     if (targetPath === "/" || targetPath.endsWith("/")) {
-      targetPath =
-        targetPath === "/" ? "/" + srcName : targetPath + "/" + srcName;
+      // 规范化路径：确保只有一个斜杠分隔
+      const baseDir =
+        targetPath === "/"
+          ? ""
+          : targetPath.endsWith("/")
+            ? targetPath.slice(0, -1)
+            : targetPath;
+      targetPath = baseDir + "/" + srcName;
     }
 
     const result = await fileManager.copyOrMove(
@@ -2205,24 +2211,24 @@ function showContextMenu(event, path, type) {
     const actions =
       type === "dir"
         ? `
-        <div class="context-menu-item" onclick="enterFolder('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); enterFolder('${escapeHtml(path)}')">
             <i class="ti ti-folder-open"></i> 打开
         </div>
-        <div class="context-menu-item" onclick="showCopyMoveModal('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); showCopyMoveModal('${escapeHtml(path)}')">
             <i class="ti ti-copy"></i> 复制/移动
         </div>
       `
         : `
-        <div class="context-menu-item" onclick="previewFile('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); previewFile('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
             <i class="ti ti-eye"></i> 预览
         </div>
-        <div class="context-menu-item" onclick="downloadFile('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); downloadFile('${escapeHtml(path)}')">
             <i class="ti ti-download"></i> 下载
         </div>
-        <div class="context-menu-item" onclick="showCopyMoveModal('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); showCopyMoveModal('${escapeHtml(path)}')">
             <i class="ti ti-copy"></i> 复制/移动
         </div>
-        <div class="context-menu-item" onclick="copyShareUrl('${escapeHtml(path)}')">
+        <div class="context-menu-item" onclick="hideContextMenu(); copyShareUrl('${escapeHtml(path)}')">
             <i class="ti ti-link"></i> 复制分享链接
         </div>
       `;
@@ -2230,14 +2236,14 @@ function showContextMenu(event, path, type) {
     menu.innerHTML = `
     ${actions}
     <div class="context-menu-divider"></div>
-    <div class="context-menu-item" onclick="showRenameModal('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
+    <div class="context-menu-item" onclick="hideContextMenu(); showRenameModal('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
         <i class="ti ti-edit"></i> 重命名
     </div>
-    <div class="context-menu-item" onclick="deleteFile('${escapeHtml(path)}')">
+    <div class="context-menu-item" onclick="hideContextMenu(); deleteFile('${escapeHtml(path)}')">
         <i class="ti ti-trash"></i> 删除
     </div>
     <div class="context-menu-divider"></div>
-    <div class="context-menu-item" onclick="copyPath('${escapeHtml(path)}')">
+    <div class="context-menu-item" onclick="hideContextMenu(); copyPath('${escapeHtml(path)}')">
         <i class="ti ti-link"></i> 复制路径
     </div>
   `;

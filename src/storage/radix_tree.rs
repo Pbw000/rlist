@@ -29,7 +29,9 @@ impl<T: Clone> RadixTree<T> {
                     continue 'search_loop;
                 }
             }
-            break;
+            if !key_part.is_empty() {
+                break;
+            }
         }
         let matched = if find_idx > 0 {
             &key[find_idx - 1..]
