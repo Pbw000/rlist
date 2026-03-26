@@ -186,7 +186,16 @@ where
 pub struct ConfigMeta<T: Storage> {
     drivers: Vec<DriverMeta<T>>,
 }
-
+impl<T: Storage> ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    pub fn new() -> Self {
+        Self {
+            drivers: Vec::new(),
+        }
+    }
+}
 impl<T: Storage> Serialize for ConfigMeta<T>
 where
     T::ConfigMeta: Serialize + DeserializeOwned,

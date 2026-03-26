@@ -21,8 +21,8 @@ pub struct AppCofiguration {
 impl Default for AppCofiguration {
     fn default() -> Self {
         Self {
-            public_registry: ConfigMeta::<AllDriver>::default(),
-            private_registry: ConfigMeta::<AllDriver>::default(),
+            public_registry: ConfigMeta::<AllDriver>::new(),
+            private_registry: ConfigMeta::<AllDriver>::new(),
         }
     }
 }
