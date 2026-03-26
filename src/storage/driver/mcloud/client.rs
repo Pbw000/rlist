@@ -40,6 +40,17 @@ pub struct McloudStorage {
     /// 缓存 path -> file_id
     path_cache: RwLock<RadixTree<CacheEntry>>,
 }
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ConfigMeta {
+    token: String,
+}
+impl Default for ConfigMeta {
+    fn default() -> Self {
+        Self {
+            token: "Mcloud token place holder".to_owned(),
+        }
+    }
+}
 impl Clone for McloudStorage {
     fn clone(&self) -> Self {
         Self {
@@ -133,12 +144,10 @@ impl Storage for McloudStorage {
         // dbg!(&path);
 
         async move {
-            // 从缓存获取子目录列表
             {
                 let cache = self.path_cache.read().await;
                 let children = cache.search_children(path);
                 if !children.is_empty() && cursor.is_none() {
-                    // 有缓存且是第一页，直接返回缓存
                     let mut items = Vec::new();
                     for (_, child_node) in children {
                         if let Some(cache_entry) = &child_node.value {
@@ -259,7 +268,7 @@ impl Storage for McloudStorage {
         &self,
         old_path: &str,
         new_name: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async move {
             let file_id = if let Some(id) = self.get_file_id_by_path(old_path).await {
                 id
@@ -269,15 +278,14 @@ impl Storage for McloudStorage {
 
             // 获取父目录 file_id 以使缓存失效
             let parent_path = old_path.rsplit_once('/').map(|(p, _)| p).unwrap_or("/");
-            let _parent_file_id = self.get_file_id_by_path(parent_path).await;
 
             self.rename_file(&file_id, new_name).await?;
 
             // 清除旧缓存
             self.remove_cache(old_path).await;
 
-            let meta = self.get_file_meta_by_path(&parent_path).await?;
-            Ok(meta.to_meta())
+            self.build_cache(&parent_path).await?;
+            Ok(())
         }
     }
 
@@ -515,26 +523,22 @@ impl Storage for McloudStorage {
             .and_then(|v| Some(v.to_meta())))
     }
 
-    fn from_auth_data(json: &str) -> Result<Self, Self::Error>
+    type ConfigMeta = ConfigMeta;
+
+    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        #[derive(serde::Deserialize)]
-        struct AuthJson {
-            authorization: String,
-        }
-
-        let auth_json: AuthJson = serde_json::from_str(json)
-            .map_err(|_e| McloudError::ParseError("认证数据解析失败".to_string()))?;
-
-        Ok(Self::from_authorization(auth_json.authorization))
+        Ok(Self::from_authorization(data.token))
     }
 
-    fn auth_template(&self) -> String
+    fn auth_template(&self) -> Self::ConfigMeta
     where
         Self: Sized,
     {
-        r#"{"type": "token", "fields": ["authorization"]}"#.to_string()
+        ConfigMeta {
+            token: "Your mcloud token here".to_string(),
+        }
     }
 }
 

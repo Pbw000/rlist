@@ -17,11 +17,17 @@ let previewRotation = 0;
 let previewPdfDoc = null;
 let previewFileType = "";
 
+// 路径历史记录
+let pathHistory = [];
+let pathHistoryIndex = -1;
+let isNavigatingHistory = false;
+
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
-  // 从 URL 参数获取 storage 参数
+  // 从 URL 参数获取 storage 和 path 参数
   const urlParams = new URLSearchParams(window.location.search);
   const storageParam = urlParams.get("storage");
+  const pathParam = urlParams.get("path");
 
   // 如果有 storage 参数，更新当前路径并显示存储徽章
   if (storageParam) {
@@ -34,6 +40,26 @@ document.addEventListener("DOMContentLoaded", () => {
       storageBadgeName.textContent = storageParam;
     }
   }
+
+  // 如果有 path 参数，使用 path 参数
+  if (pathParam) {
+    currentPath = decodeURIComponent(pathParam);
+  }
+
+  // 初始化路径历史
+  pathHistory = [currentPath];
+
+  // 全局错误处理 - 捕获未处理的异常
+  window.addEventListener("error", (e) => {
+    console.error("全局错误:", e.error);
+  });
+
+  // 捕获未处理的 Promise rejection
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("未处理的 Promise rejection:", e.reason);
+  });
+
+  pathHistoryIndex = 0;
 
   // 初始化主题
   initTheme();
@@ -55,6 +81,35 @@ document.addEventListener("DOMContentLoaded", () => {
       hideContextMenu();
     }
   });
+
+  // 监听浏览器前进/后退
+  window.addEventListener("popstate", (e) => {
+    if (e.state && e.state.path !== undefined) {
+      // 从历史记录导航
+      currentPath = e.state.path;
+
+      // 更新路径历史索引
+      const historyIndex = pathHistory.indexOf(currentPath);
+      if (historyIndex !== -1) {
+        pathHistoryIndex = historyIndex;
+      }
+
+      // 更新 UI
+      updateBreadcrumb();
+      loadFiles(currentPath);
+      updateNavButtons();
+    }
+  });
+
+  // 路径输入框回车确认
+  const pathInput = document.getElementById("pathInput");
+  if (pathInput) {
+    pathInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        confirmPathInput();
+      }
+    });
+  }
 });
 
 /**
@@ -270,9 +325,8 @@ function enterFolderWithAnimation(path) {
   // 添加进入动画类
   fileList.classList.add("nav-entering");
 
-  // 执行导航
+  // 执行导航（添加到历史记录）
   navigateTo(path);
-  updateBreadcrumb();
 
   // 动画结束后移除类
   setTimeout(() => {
@@ -285,14 +339,33 @@ function enterFolderWithAnimation(path) {
  */
 function updateBreadcrumb() {
   const breadcrumb = document.getElementById("breadcrumb");
+  if (!breadcrumb) return;
+
   const parts = currentPath.split("/").filter((p) => p);
   let html =
-    '<a href="#" onclick="navigateTo(\'/\'); return false;"><i class="ti ti-home"></i></a>';
+    '<a href="#" onclick="navigateTo(\'/\'); return false;" class="breadcrumb-item">' +
+    '<i class="ti ti-home"></i>' +
+    "<span>首页</span>" +
+    "</a>";
 
   let path = "";
-  parts.forEach((part) => {
+  parts.forEach((part, index) => {
     path += "/" + part;
-    html += ` <span class="separator">/</span> <a href="#" onclick="navigateTo('${escapeHtml(path)}'); return false;">${escapeHtml(part)}</a>`;
+    const isLast = index === parts.length - 1;
+
+    // 添加分隔符
+    html += '<span class="breadcrumb-separator">/</span>';
+
+    // 最后一项（当前路径）添加 active 类
+    if (isLast) {
+      html += `<a href="#" onclick="navigateTo('${escapeHtml(path)}'); return false;" class="breadcrumb-item active">
+        <span>${escapeHtml(part)}</span>
+      </a>`;
+    } else {
+      html += `<a href="#" onclick="navigateTo('${escapeHtml(path)}'); return false;" class="breadcrumb-item">
+        <span>${escapeHtml(part)}</span>
+      </a>`;
+    }
   });
 
   breadcrumb.innerHTML = html;
@@ -301,10 +374,166 @@ function updateBreadcrumb() {
 /**
  * 导航到指定路径
  * @param {string} path - 路径
+ * @param {boolean} addToHistory - 是否添加到历史记录
  */
-function navigateTo(path) {
+function navigateTo(path, addToHistory = true) {
   currentPath = path || "/";
+
+  // 更新 URL 地址栏（使用 history.pushState）
+  if (addToHistory) {
+    // 添加到路径历史
+    pathHistory = pathHistory.slice(0, pathHistoryIndex + 1);
+    pathHistory.push(currentPath);
+    pathHistoryIndex++;
+
+    // 更新浏览器历史记录
+    const newUrl = buildUrlWithPath(currentPath);
+    history.pushState({ path: currentPath }, "", newUrl);
+  }
+
+  // 更新面包屑和文件列表
+  updateBreadcrumb();
   loadFiles(currentPath);
+
+  // 更新导航按钮状态
+  updateNavButtons();
+}
+
+/**
+ * 构建带路径参数的 URL
+ * @param {string} path - 路径
+ * @returns {string} URL
+ */
+function buildUrlWithPath(path) {
+  const url = new URL(window.location.href);
+  const storageParam = document.getElementById("storageBadgeName")?.textContent;
+
+  // 如果有 storage，保留 storage 参数
+  if (storageParam) {
+    url.searchParams.set("storage", storageParam);
+  }
+
+  // 设置 path 参数
+  if (path !== "/") {
+    url.searchParams.set("path", encodeURIComponent(path));
+  } else {
+    url.searchParams.delete("path");
+  }
+
+  return url.toString();
+}
+
+/**
+ * 更新导航按钮状态
+ */
+function updateNavButtons() {
+  const backBtn = document.getElementById("backBtn");
+  const forwardBtn = document.getElementById("forwardBtn");
+
+  if (backBtn) {
+    backBtn.disabled = pathHistoryIndex <= 0;
+  }
+  if (forwardBtn) {
+    forwardBtn.disabled = pathHistoryIndex >= pathHistory.length - 1;
+  }
+}
+
+/**
+ * 后退
+ */
+function goBack() {
+  if (pathHistoryIndex > 0) {
+    pathHistoryIndex--;
+    const path = pathHistory[pathHistoryIndex];
+    currentPath = path;
+    history.back();
+  }
+}
+
+/**
+ * 前进
+ */
+function goForward() {
+  if (pathHistoryIndex < pathHistory.length - 1) {
+    pathHistoryIndex++;
+    const path = pathHistory[pathHistoryIndex];
+    currentPath = path;
+    history.forward();
+  }
+}
+
+/**
+ * 切换路径输入框显示
+ */
+function togglePathInput() {
+  const breadcrumb = document.getElementById("breadcrumb");
+  const pathInputWrapper = document.getElementById("pathInputWrapper");
+  const pathInput = document.getElementById("pathInput");
+
+  if (breadcrumb.style.display === "none") {
+    // 显示面包屑
+    breadcrumb.style.display = "flex";
+    pathInputWrapper.style.display = "none";
+  } else {
+    // 显示输入框
+    breadcrumb.style.display = "none";
+    pathInputWrapper.style.display = "flex";
+    pathInput.value = currentPath;
+    pathInput.focus();
+    pathInput.select();
+  }
+}
+
+/**
+ * 确认路径输入
+ */
+function confirmPathInput() {
+  const pathInput = document.getElementById("pathInput");
+  const newPath = pathInput.value.trim();
+
+  if (newPath) {
+    // 规范化路径
+    const normalizedPath = normalizePath(newPath);
+    navigateTo(normalizedPath);
+  }
+
+  // 切换回面包屑显示
+  togglePathInput();
+}
+
+/**
+ * 取消路径输入
+ */
+function cancelPathInput() {
+  togglePathInput();
+}
+
+/**
+ * 规范化路径
+ * @param {string} path - 路径
+ * @returns {string} 规范化后的路径
+ */
+function normalizePath(path) {
+  // 确保路径以 / 开头
+  if (!path.startsWith("/")) {
+    path = "/" + path;
+  }
+
+  // 处理 .. 和 .
+  const parts = path.split("/").filter((p) => p && p !== ".");
+  const result = [];
+
+  for (const part of parts) {
+    if (part === "..") {
+      if (result.length > 0) {
+        result.pop();
+      }
+    } else {
+      result.push(part);
+    }
+  }
+
+  return "/" + result.join("/");
 }
 
 /**
@@ -313,19 +542,6 @@ function navigateTo(path) {
  */
 function enterFolder(path) {
   navigateTo(path);
-}
-
-/**
- * 双击处理
- * @param {string} path - 路径
- * @param {string} type - 类型
- */
-function handleDoubleClick(path, type) {
-  if (type === "dir") {
-    enterFolder(path);
-  } else {
-    previewFile(path, path.split("/").pop());
-  }
 }
 
 /**

@@ -54,7 +54,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
     type Error = T::Error;
     type End2EndCopyMeta = T::End2EndCopyMeta;
     type End2EndMoveMeta = T::End2EndMoveMeta;
-
+    type ConfigMeta = T::ConfigMeta;
     fn hash(&self) -> u64 {
         self.inner.hash()
     }
@@ -118,7 +118,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
         self.inner.delete(&self.handle_path(path)).await
     }
 
-    async fn rename(&self, old_path: &str, new_name: &str) -> Result<FileMeta, Self::Error> {
+    async fn rename(&self, old_path: &str, new_name: &str) -> Result<(), Self::Error> {
         if self.read_only {
             return Err(<T as Storage>::Error::from(
                 "Storage is read-only".to_string(),
@@ -198,11 +198,11 @@ impl<T: Storage> Storage for PartialStorage<T> {
             .await
     }
 
-    fn from_auth_data(json: &str) -> Result<Self, Self::Error>
+    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        let inner = T::from_auth_data(json)?;
+        let inner = T::from_auth_data(data)?;
         Ok(Self {
             inner,
             prefix_path: String::new(),
@@ -210,7 +210,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
         })
     }
 
-    fn auth_template(&self) -> String
+    fn auth_template(&self) -> Self::ConfigMeta
     where
         Self: Sized,
     {

@@ -2035,3 +2035,235 @@ input:checked + .slider:before {
     font-size: 14px;
     margin: 0;
 }
+
+/* ============ 路径导航历史按钮 ============ */
+.nav-history {
+    display: flex;
+    gap: 4px;
+    margin-left: 8px;
+}
+
+.nav-history-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.nav-history-btn:hover:not(:disabled) {
+    background: var(--card-bg-hover);
+    color: var(--primary-color);
+}
+
+.nav-history-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.nav-history-btn i {
+    font-size: 18px;
+}
+
+/* ============ 面包屑容器 ============ */
+.breadcrumb-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 200px;
+    max-width: 600px;
+    margin-left: 12px;
+}
+
+/* ============ 面包屑导航美化 ============ */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-light);
+    font-size: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+
+.breadcrumb::-webkit-scrollbar {
+    height: 4px;
+}
+
+.breadcrumb::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.breadcrumb::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 2px;
+}
+
+.breadcrumb-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-radius: var(--radius);
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+
+.breadcrumb-item:hover {
+    background: var(--card-bg-hover);
+    color: var(--primary-color);
+}
+
+.breadcrumb-item i {
+    font-size: 16px;
+}
+
+.breadcrumb-item.active {
+    color: var(--text-color);
+    font-weight: 500;
+    background: var(--primary-light);
+    color: var(--primary-color);
+}
+
+.breadcrumb-separator {
+    color: var(--text-secondary);
+    opacity: 0.5;
+    font-size: 14px;
+}
+
+/* ============ 路径输入框 ============ */
+.path-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    width: 100%;
+}
+
+.path-input {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: "Consolas", "Monaco", monospace;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-color);
+    outline: none;
+    transition: all var(--transition);
+}
+
+.path-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.path-input-confirm,
+.path-input-cancel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.path-input-confirm {
+    color: var(--success-color);
+}
+
+.path-input-cancel {
+    color: var(--text-secondary);
+}
+
+.path-input-confirm:hover {
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.path-input-cancel:hover {
+    background: var(--card-bg-hover);
+}
+
+/* ============ 编辑路径按钮 ============ */
+.edit-path-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    margin-left: 4px;
+}
+
+.edit-path-btn:hover {
+    background: var(--card-bg-hover);
+    color: var(--primary-color);
+}
+
+.edit-path-btn i {
+    font-size: 16px;
+}
+
+/* ============ 响应式调整 ============ */
+@media (max-width: 768px) {
+    .navbar-left {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    /* 移动端隐藏历史导航按钮 */
+    .nav-history {
+        display: none;
+    }
+
+    /* 移动端面包屑缩小 */
+    .breadcrumb-container {
+        max-width: 200px;
+        margin-left: 8px;
+    }
+
+    .breadcrumb {
+        padding: 4px 8px;
+        font-size: 13px;
+    }
+
+    /* 移动端隐藏编辑路径按钮 */
+    .edit-path-btn {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    /* 超小屏幕隐藏面包屑，只显示当前目录名 */
+    .breadcrumb-container {
+        max-width: 120px;
+    }
+
+    .breadcrumb-item:not(:last-child) {
+        display: none;
+    }
+}

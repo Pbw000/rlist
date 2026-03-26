@@ -20,8 +20,8 @@
             href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
             rel="stylesheet"
         />
-        <link rel="stylesheet" href="/css/style.css?v=20260325010" />
-        <link rel="stylesheet" href="/css/public.css?v=20260325010" />
+        <link rel="stylesheet" href="/css/style.css?v=20260326011" />
+        <link rel="stylesheet" href="/css/public.css?v=20260326011" />
     </head>
     <body>
         <div class="container">
@@ -34,19 +34,83 @@
                         </div>
                         <span class="logo-text">RList</span>
                     </div>
-                    <div class="breadcrumb" id="breadcrumb">
-                        <span class="breadcrumb-separator"
-                            ><i class="ti ti-chevron-right"></i
-                        ></span>
-                        <a
-                            href="#"
-                            onclick="navigateTo('/')"
-                            class="breadcrumb-item"
+
+                    <!-- 路径导航历史按钮 -->
+                    <div class="nav-history">
+                        <button
+                            class="nav-history-btn"
+                            onclick="goBack()"
+                            title="后退"
+                            id="backBtn"
+                            disabled
                         >
-                            <i class="ti ti-home"></i>
-                            <span>首页</span>
-                        </a>
+                            <i class="ti ti-chevron-left"></i>
+                        </button>
+                        <button
+                            class="nav-history-btn"
+                            onclick="goForward()"
+                            title="前进"
+                            id="forwardBtn"
+                            disabled
+                        >
+                            <i class="ti ti-chevron-right"></i>
+                        </button>
                     </div>
+
+                    <!-- 面包屑导航（可编辑模式） -->
+                    <div class="breadcrumb-container" id="breadcrumbContainer">
+                        <div class="breadcrumb" id="breadcrumb">
+                            <a
+                                href="#"
+                                onclick="
+                                    navigateTo('/');
+                                    return false;
+                                "
+                                class="breadcrumb-item"
+                            >
+                                <i class="ti ti-home"></i>
+                                <span>首页</span>
+                            </a>
+                        </div>
+                        <!-- 路径输入框（点击编辑时显示） -->
+                        <div
+                            class="path-input-wrapper"
+                            id="pathInputWrapper"
+                            style="display: none"
+                        >
+                            <input
+                                type="text"
+                                class="path-input"
+                                id="pathInput"
+                                placeholder="输入路径..."
+                                autocomplete="off"
+                            />
+                            <button
+                                class="path-input-confirm"
+                                onclick="confirmPathInput()"
+                                title="确认"
+                            >
+                                <i class="ti ti-check"></i>
+                            </button>
+                            <button
+                                class="path-input-cancel"
+                                onclick="cancelPathInput()"
+                                title="取消"
+                            >
+                                <i class="ti ti-x"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 编辑路径按钮 -->
+                    <button
+                        class="edit-path-btn"
+                        onclick="togglePathInput()"
+                        title="编辑路径"
+                    >
+                        <i class="ti ti-edit"></i>
+                    </button>
+
                     <div
                         class="storage-badge"
                         id="storageBadge"
@@ -207,7 +271,7 @@
                 }
             });
         </script>
-        <script src="/js/utils.js?v=20260325010"></script>
-        <script src="/js/public.js?v=20260325010"></script>
+        <script src="/js/utils.js?v=20260326011"></script>
+        <script src="/js/public.js?v=20260326011"></script>
     </body>
 </html>

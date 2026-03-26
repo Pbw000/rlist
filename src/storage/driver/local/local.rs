@@ -2,9 +2,10 @@ use crate::error::StorageError;
 use crate::storage::file_meta::{DownloadableMeta, Meta};
 use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
 use ring::digest::{Context, SHA256};
+use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::io::SeekFrom;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek};
 
@@ -113,13 +114,22 @@ impl FileContent for LocalFileReader {
         &self.hash
     }
 }
-
-// ============== Storage trait 实现 ==============
-
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ConfigMeta {
+    root_dir: String,
+}
+impl Default for ConfigMeta {
+    fn default() -> Self {
+        Self {
+            root_dir: "Directory Placeholder".to_string(),
+        }
+    }
+}
 impl Storage for LocalStorage {
     type Error = StorageError;
     type End2EndCopyMeta = FileMeta;
     type End2EndMoveMeta = FileMeta;
+    type ConfigMeta = ConfigMeta;
 
     fn name(&self) -> &str {
         "本地存储"
@@ -268,7 +278,7 @@ impl Storage for LocalStorage {
         &self,
         old_path: &str,
         new_name: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async move {
             let normalized = self.normalize_path(old_path)?;
             let parent = normalized
@@ -278,7 +288,7 @@ impl Storage for LocalStorage {
 
             std::fs::rename(&normalized, &new_path)
                 .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-            self.meta_from_path(&new_path)
+            Ok(())
         }
     }
 
@@ -378,18 +388,24 @@ impl Storage for LocalStorage {
         }
     }
 
-    fn from_auth_data(_json: &str) -> Result<Self, Self::Error>
+    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        Ok(Self::new("."))
+        let path = Path::new(&data.root_dir);
+        if !path.is_dir() {
+            return Err(StorageError::NotFound("Not a directory".to_string()));
+        }
+        Ok(Self::new(path))
     }
 
-    fn auth_template(&self) -> String
+    fn auth_template(&self) -> Self::ConfigMeta
     where
         Self: Sized,
     {
-        r#"{"type": "none"}"#.to_string()
+        Self::ConfigMeta {
+            root_dir: "/path/to/you/dir".into(),
+        }
     }
 }
 

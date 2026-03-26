@@ -195,7 +195,7 @@ macro_rules! impl_storage_enum {
                     }
                 }
 
-                async fn rename(&self, old_path: &str, new_name: &str) -> Result<$crate::FileMeta, Self::Error> {
+                async fn rename(&self, old_path: &str, new_name: &str) -> Result<(), Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {
                             <$ty as $crate::Storage>::rename(driver, old_path, new_name).await.map_err(|e| Into::<$error_type>::into(e))

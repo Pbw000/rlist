@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::{RlistError, StorageError};
 use crate::storage::file_meta::Meta;
 use crate::storage::model::{FileContent, FileList, UploadInfoParams};
 use crate::{Storage, storage::radix_tree::RadixTree};
 
-/// 存储驱动及其前缀路径
 #[derive(Debug, PartialEq, Eq)]
 pub struct DriverWithPrefix<T> {
     pub prefix: String,
@@ -25,6 +26,13 @@ impl<T: Storage> FusedStorage<T> {
             tree: RadixTree::new(),
         }
     }
+    pub fn from_drivers(drivers: Vec<DriverWithPrefix<T>>) -> Self {
+        let mut tree = RadixTree::new();
+        for driver in &drivers {
+            tree.insert(&driver.prefix, driver.driver.clone());
+        }
+        Self { drivers, tree }
+    }
 
     pub fn add_driver<U: Into<T>>(&mut self, driver: U, prefix: &str) {
         let driver = Arc::new(driver.into());
@@ -37,7 +45,7 @@ impl<T: Storage> FusedStorage<T> {
     }
     pub fn remove_by_idx(&mut self, idx: usize) -> Option<Arc<T>> {
         if idx >= self.drivers.len() {
-            println!(
+            tracing::warn!(
                 "remove_by_idx: index {} out of bounds (drivers.len() = {})",
                 idx,
                 self.drivers.len()
@@ -45,9 +53,10 @@ impl<T: Storage> FusedStorage<T> {
             return None;
         }
         let driver = self.drivers.remove(idx);
-        println!(
+        tracing::info!(
             "remove_by_idx: removing driver with prefix '{}' at index {}",
-            driver.prefix, idx
+            driver.prefix,
+            idx
         );
         self.tree.remove(&driver.prefix)
     }
@@ -95,22 +104,66 @@ impl<T: Storage> Default for FusedStorage<T> {
 
 impl<T: Storage + 'static> FusedStorage<T> {
     pub async fn copy(&self, src_path: &str, dest_path: &str) -> Result<(), RlistError> {
-        let source_meta = self.gen_copy_meta(src_path).await?;
-        self.copy_end_to_end(source_meta, dest_path).await
+        let meta = self.gen_copy_meta(src_path).await?;
+        match self.copy_end_to_end(meta, dest_path).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                tracing::info!(
+                    "End to end copy is not supported({})! Failback to relay mode.",
+                    e
+                );
+                self.copy_relay(src_path, dest_path).await?;
+                Ok(())
+            }
+        }
     }
 
-    /// 便捷的移动方法：从源路径移动到目标路径
-    pub async fn move_file(&self, src_path: &str, dest_path: &str) -> Result<(), RlistError> {
-        let source_meta = self.gen_move_meta(src_path).await?;
-        self.move_end_to_end(source_meta, dest_path).await
+    pub async fn move_file_recusive(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+    ) -> Result<(), RlistError> {
+        let meta = self.gen_move_meta(src_path).await?;
+        match self.move_end_to_end(meta, dest_path).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                tracing::info!(
+                    "End to end move is not supported({})! Failback to relay mode.",
+                    e
+                );
+                self.move_file(src_path, dest_path).await?;
+                Ok(())
+            }
+        }
     }
 }
 
+#[derive(Deserialize, Serialize)]
+struct DriverMeta<T: Storage> {
+    path: String,
+    config: T::ConfigMeta,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ConfigMeta<T: Storage> {
+    drivers: Vec<DriverMeta<T>>,
+}
+
+impl<T: Storage> Default for ConfigMeta<T> {
+    fn default() -> Self {
+        Self {
+            drivers: vec![DriverMeta {
+                path: "/".to_string(),
+                config: T::ConfigMeta::default(),
+            }],
+        }
+    }
+}
 impl<T: Storage + 'static> Storage for FusedStorage<T> {
     type Error = RlistError;
     type End2EndCopyMeta = T::End2EndCopyMeta;
     type End2EndMoveMeta = T::End2EndMoveMeta;
-
+    type ConfigMeta = ConfigMeta<T>;
     fn hash(&self) -> u64 {
         use std::hash::Hasher;
         let hasher = std::collections::hash_map::DefaultHasher::new();
@@ -269,7 +322,7 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         }
     }
 
-    async fn rename(&self, old_path: &str, new_name: &str) -> Result<Meta, Self::Error> {
+    async fn rename(&self, old_path: &str, new_name: &str) -> Result<(), Self::Error> {
         match self.get_driver(old_path) {
             Some((driver, remaining_path)) => driver
                 .rename(remaining_path, new_name)
@@ -402,13 +455,11 @@ impl<T: Storage + 'static> Storage for FusedStorage<T> {
         }
     }
 
-    fn from_auth_data(_json: &str) -> Result<Self, Self::Error> {
-        Err(RlistError::Storage(StorageError::Unsupported(
-            "不支持从认证数据初始化".to_string(),
-        )))
+    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error> {
+        Self::new()
     }
 
-    fn auth_template(&self) -> String {
-        String::from("{}")
+    fn auth_template(&self) -> Self::ConfigMeta {
+        Self::ConfigMeta::default()
     }
 }

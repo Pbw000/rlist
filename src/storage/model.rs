@@ -6,6 +6,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::future::Future;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncSeek};
 
@@ -96,6 +97,7 @@ pub trait Storage: Send + Sync {
     type Error: Send + Sync + Error + 'static + Into<RlistError> + From<String>;
     type End2EndCopyMeta: Send + Debug;
     type End2EndMoveMeta: Send + Debug;
+    type ConfigMeta: Send + Serialize + DeserializeOwned + Default;
     fn name(&self) -> &str;
     fn hash(&self) -> u64;
     fn driver_name(&self) -> &str {
@@ -147,7 +149,7 @@ pub trait Storage: Send + Sync {
         &self,
         old_path: &str,
         new_name: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     /// 复制
     fn copy_end_to_end(
@@ -251,20 +253,18 @@ pub trait Storage: Send + Sync {
     {
         async move {
             let meta = self.copy_relay(source_path, dest_path).await?;
-
             self.delete(source_path).await?;
-
             Ok(meta)
         }
     }
 
     /// 从认证数据创建实例
-    fn from_auth_data(json: &str) -> Result<Self, Self::Error>
+    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error>
     where
         Self: Sized;
 
     /// 认证模板
-    fn auth_template(&self) -> String
+    fn auth_template(&self) -> Self::ConfigMeta
     where
         Self: Sized;
 }

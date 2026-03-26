@@ -10,18 +10,32 @@ let sidebarOpen = false;
 document.addEventListener("DOMContentLoaded", () => {
   checkAuthAndLoad();
   initTheme();
+
+  // 全局错误处理 - 捕获未处理的异常
+  window.addEventListener("error", (e) => {
+    console.error("全局错误:", e.error);
+  });
+
+  // 捕获未处理的 Promise rejection
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("未处理的 Promise rejection:", e.reason);
+  });
 });
 
 /**
  * 切换侧边栏（移动端）
  */
 function toggleSidebar() {
-  const sidebar = document.querySelector(".admin-sidebar");
-  sidebarOpen = !sidebarOpen;
-  if (sidebarOpen) {
-    sidebar.classList.add("mobile-open");
-  } else {
-    sidebar.classList.remove("mobile-open");
+  try {
+    const sidebar = document.querySelector(".admin-sidebar");
+    sidebarOpen = !sidebarOpen;
+    if (sidebarOpen) {
+      sidebar.classList.add("mobile-open");
+    } else {
+      sidebar.classList.remove("mobile-open");
+    }
+  } catch (error) {
+    console.error("切换侧边栏失败:", error);
   }
 }
 
@@ -90,35 +104,41 @@ async function checkAuthAndLoad() {
  * @param {string} page - 页面名称
  */
 function switchPage(page) {
-  currentPage = page;
+  try {
+    currentPage = page;
 
-  // 更新导航状态
-  document.querySelectorAll(".nav-item").forEach((item) => {
-    if (item.dataset.page === page) {
-      item.classList.add("active");
-    } else {
-      item.classList.remove("active");
+    // 更新导航状态
+    document.querySelectorAll(".nav-item").forEach((item) => {
+      if (item.dataset.page === page) {
+        item.classList.add("active");
+      } else {
+        item.classList.remove("active");
+      }
+    });
+
+    // 更新页面标题
+    const titles = {
+      users: "用户管理",
+      storages: "存储管理",
+    };
+    document.getElementById("pageTitle").textContent =
+      titles[page] || "管理后台";
+
+    // 切换内容区域
+    document.getElementById("usersPage").style.display =
+      page === "users" ? "block" : "none";
+    document.getElementById("storagesPage").style.display =
+      page === "storages" ? "block" : "none";
+
+    // 加载对应数据
+    if (page === "users") {
+      loadUsers();
+    } else if (page === "storages") {
+      loadStorages();
     }
-  });
-
-  // 更新页面标题
-  const titles = {
-    users: "用户管理",
-    storages: "存储管理",
-  };
-  document.getElementById("pageTitle").textContent = titles[page] || "管理后台";
-
-  // 切换内容区域
-  document.getElementById("usersPage").style.display =
-    page === "users" ? "block" : "none";
-  document.getElementById("storagesPage").style.display =
-    page === "storages" ? "block" : "none";
-
-  // 加载对应数据
-  if (page === "users") {
-    loadUsers();
-  } else if (page === "storages") {
-    loadStorages();
+  } catch (error) {
+    console.error("切换页面失败:", error);
+    showToast("切换页面失败：" + error.message, "error");
   }
 }
 
@@ -202,70 +222,84 @@ function renderPermissionBadge(enabled) {
  * 显示添加用户模态框
  */
 function showAddUserModal() {
-  document.getElementById("addUserModal").style.display = "flex";
-  document.getElementById("addUsername").value = "";
-  document.getElementById("addPassword").value = "";
-  document.getElementById("permRead").checked = true;
-  document.getElementById("permDownload").checked = true;
-  document.getElementById("permUpload").checked = true;
-  document.getElementById("permDelete").checked = false;
-  document.getElementById("permMove").checked = false;
-  document.getElementById("permCopy").checked = false;
-  document.getElementById("permCreateDir").checked = true;
-  document.getElementById("permList").checked = true;
-  document.getElementById("addUsername").focus();
+  try {
+    document.getElementById("addUserModal").style.display = "flex";
+    document.getElementById("addUsername").value = "";
+    document.getElementById("addPassword").value = "";
+    document.getElementById("permRead").checked = true;
+    document.getElementById("permDownload").checked = true;
+    document.getElementById("permUpload").checked = true;
+    document.getElementById("permDelete").checked = false;
+    document.getElementById("permMove").checked = false;
+    document.getElementById("permCopy").checked = false;
+    document.getElementById("permCreateDir").checked = true;
+    document.getElementById("permList").checked = true;
+    document.getElementById("addUsername").focus();
+  } catch (error) {
+    console.error("显示添加用户模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 隐藏添加用户模态框
  */
 function hideAddUserModal() {
-  document.getElementById("addUserModal").style.display = "none";
+  try {
+    document.getElementById("addUserModal").style.display = "none";
+  } catch (error) {
+    console.error("隐藏添加用户模态框失败:", error);
+  }
 }
 
 /**
  * 确认添加用户
  */
 async function confirmAddUser() {
-  const username = document.getElementById("addUsername").value.trim();
-  const password = document.getElementById("addPassword").value;
+  try {
+    const username = document.getElementById("addUsername").value.trim();
+    const password = document.getElementById("addPassword").value;
 
-  if (!username) {
-    showToast("请输入用户名", "error");
-    return;
-  }
+    if (!username) {
+      showToast("请输入用户名", "error");
+      return;
+    }
 
-  if (password.length < 8) {
-    showToast("密码长度至少为 8 位", "error");
-    return;
-  }
+    if (password.length < 8) {
+      showToast("密码长度至少为 8 位", "error");
+      return;
+    }
 
-  // 检查密码复杂度
-  const hasLetter = /[a-zA-Z]/.test(password);
-  const hasDigit = /[0-9]/.test(password);
-  if (!hasLetter || !hasDigit) {
-    showToast("密码必须包含字母和数字", "error");
-    return;
-  }
+    // 检查密码复杂度
+    const hasLetter = /[a-zA-Z]/.test(password);
+    const hasDigit = /[0-9]/.test(password);
+    if (!hasLetter || !hasDigit) {
+      showToast("密码必须包含字母和数字", "error");
+      return;
+    }
 
-  const permissions = {
-    read: document.getElementById("permRead").checked,
-    download: document.getElementById("permDownload").checked,
-    upload: document.getElementById("permUpload").checked,
-    delete: document.getElementById("permDelete").checked,
-    move_obj: document.getElementById("permMove").checked,
-    copy: document.getElementById("permCopy").checked,
-    create_dir: document.getElementById("permCreateDir").checked,
-    list: document.getElementById("permList").checked,
-  };
+    const permissions = {
+      read: document.getElementById("permRead").checked,
+      download: document.getElementById("permDownload").checked,
+      upload: document.getElementById("permUpload").checked,
+      delete: document.getElementById("permDelete").checked,
+      move_obj: document.getElementById("permMove").checked,
+      copy: document.getElementById("permCopy").checked,
+      create_dir: document.getElementById("permCreateDir").checked,
+      list: document.getElementById("permList").checked,
+    };
 
-  const result = await addUser(username, password, permissions);
-  if (result.code === 200) {
-    hideAddUserModal();
-    showToast("用户添加成功", "success");
-    loadUsers();
-  } else {
-    showToast("添加失败：" + result.message, "error");
+    const result = await addUser(username, password, permissions);
+    if (result.code === 200) {
+      hideAddUserModal();
+      showToast("用户添加成功", "success");
+      loadUsers();
+    } else {
+      showToast("添加失败：" + result.message, "error");
+    }
+  } catch (error) {
+    console.error("添加用户失败:", error);
+    showToast("添加失败：" + error.message, "error");
   }
 }
 
@@ -274,16 +308,21 @@ async function confirmAddUser() {
  * @param {string} username - 用户名
  */
 async function confirmDeleteUser(username) {
-  if (!confirm(`确定要删除用户 "${username}" 吗？此操作不可撤销！`)) {
-    return;
-  }
+  try {
+    if (!confirm(`确定要删除用户 "${username}" 吗？此操作不可撤销！`)) {
+      return;
+    }
 
-  const result = await removeUser(username);
-  if (result.code === 200) {
-    showToast("用户删除成功", "success");
-    loadUsers();
-  } else {
-    showToast("删除失败：" + result.message, "error");
+    const result = await removeUser(username);
+    if (result.code === 200) {
+      showToast("用户删除成功", "success");
+      loadUsers();
+    } else {
+      showToast("删除失败：" + result.message, "error");
+    }
+  } catch (error) {
+    console.error("删除用户失败:", error);
+    showToast("删除失败：" + error.message, "error");
   }
 }
 
@@ -355,41 +394,55 @@ async function loadStorages() {
  * 显示添加存储模态框
  */
 function showAddStorageModal() {
-  document.getElementById("addStorageModal").style.display = "flex";
-  document.getElementById("storageName").value = "";
-  document.getElementById("storageDriver").value = "local";
-  document.getElementById("storagePath").value = "";
-  document.getElementById("storageName").focus();
+  try {
+    document.getElementById("addStorageModal").style.display = "flex";
+    document.getElementById("storageName").value = "";
+    document.getElementById("storageDriver").value = "local";
+    document.getElementById("storagePath").value = "";
+    document.getElementById("storageName").focus();
+  } catch (error) {
+    console.error("显示添加存储模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 隐藏添加存储模态框
  */
 function hideAddStorageModal() {
-  document.getElementById("addStorageModal").style.display = "none";
+  try {
+    document.getElementById("addStorageModal").style.display = "none";
+  } catch (error) {
+    console.error("隐藏添加存储模态框失败:", error);
+  }
 }
 
 /**
  * 确认添加存储
  */
 async function confirmAddStorage() {
-  const name = document.getElementById("storageName").value.trim();
-  const driver = document.getElementById("storageDriver").value;
-  const path = document.getElementById("storagePath").value.trim();
+  try {
+    const name = document.getElementById("storageName").value.trim();
+    const driver = document.getElementById("storageDriver").value;
+    const path = document.getElementById("storagePath").value.trim();
 
-  if (!name) {
-    showToast("请输入存储名称", "error");
-    return;
+    if (!name) {
+      showToast("请输入存储名称", "error");
+      return;
+    }
+
+    if (!path) {
+      showToast("请输入存储路径", "error");
+      return;
+    }
+
+    // TODO: 实现添加存储 API
+    showToast("添加存储功能开发中", "error");
+    hideAddStorageModal();
+  } catch (error) {
+    console.error("添加存储失败:", error);
+    showToast("添加失败：" + error.message, "error");
   }
-
-  if (!path) {
-    showToast("请输入存储路径", "error");
-    return;
-  }
-
-  // TODO: 实现添加存储 API
-  showToast("添加存储功能开发中", "error");
-  hideAddStorageModal();
 }
 
 /**
@@ -397,69 +450,83 @@ async function confirmAddStorage() {
  * @param {string} username - 用户名
  */
 async function showEditPermissionsModal(username) {
-  const result = await listUsers();
-  if (result.code !== 200 || !result.data) {
-    showToast("获取用户列表失败", "error");
-    return;
+  try {
+    const result = await listUsers();
+    if (result.code !== 200 || !result.data) {
+      showToast("获取用户列表失败", "error");
+      return;
+    }
+
+    const user = result.data.find((u) => u.username === username);
+    if (!user) {
+      showToast("用户不存在", "error");
+      return;
+    }
+
+    document.getElementById("editUsername").value = username;
+    document.getElementById("editPermRead").checked = user.permissions.read;
+    document.getElementById("editPermDownload").checked =
+      user.permissions.download;
+    document.getElementById("editPermUpload").checked = user.permissions.upload;
+    document.getElementById("editPermDelete").checked = user.permissions.delete;
+    document.getElementById("editPermMove").checked = user.permissions.move_obj;
+    document.getElementById("editPermCopy").checked = user.permissions.copy;
+    document.getElementById("editPermCreateDir").checked =
+      user.permissions.create_dir;
+    document.getElementById("editPermList").checked = user.permissions.list;
+
+    document.getElementById("editPermissionsModal").style.display = "flex";
+  } catch (error) {
+    console.error("显示编辑权限模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
-
-  const user = result.data.find((u) => u.username === username);
-  if (!user) {
-    showToast("用户不存在", "error");
-    return;
-  }
-
-  document.getElementById("editUsername").value = username;
-  document.getElementById("editPermRead").checked = user.permissions.read;
-  document.getElementById("editPermDownload").checked =
-    user.permissions.download;
-  document.getElementById("editPermUpload").checked = user.permissions.upload;
-  document.getElementById("editPermDelete").checked = user.permissions.delete;
-  document.getElementById("editPermMove").checked = user.permissions.move_obj;
-  document.getElementById("editPermCopy").checked = user.permissions.copy;
-  document.getElementById("editPermCreateDir").checked =
-    user.permissions.create_dir;
-  document.getElementById("editPermList").checked = user.permissions.list;
-
-  document.getElementById("editPermissionsModal").style.display = "flex";
 }
 
 /**
  * 隐藏编辑权限模态框
  */
 function hideEditPermissionsModal() {
-  document.getElementById("editPermissionsModal").style.display = "none";
+  try {
+    document.getElementById("editPermissionsModal").style.display = "none";
+  } catch (error) {
+    console.error("隐藏编辑权限模态框失败:", error);
+  }
 }
 
 /**
  * 确认编辑权限
  */
 async function confirmEditPermissions() {
-  const username = document.getElementById("editUsername").value.trim();
+  try {
+    const username = document.getElementById("editUsername").value.trim();
 
-  if (!username) {
-    showToast("用户名无效", "error");
-    return;
-  }
+    if (!username) {
+      showToast("用户名无效", "error");
+      return;
+    }
 
-  const permissions = {
-    read: document.getElementById("editPermRead").checked,
-    download: document.getElementById("editPermDownload").checked,
-    upload: document.getElementById("editPermUpload").checked,
-    delete: document.getElementById("editPermDelete").checked,
-    move_obj: document.getElementById("editPermMove").checked,
-    copy: document.getElementById("editPermCopy").checked,
-    create_dir: document.getElementById("editPermCreateDir").checked,
-    list: document.getElementById("editPermList").checked,
-  };
+    const permissions = {
+      read: document.getElementById("editPermRead").checked,
+      download: document.getElementById("editPermDownload").checked,
+      upload: document.getElementById("editPermUpload").checked,
+      delete: document.getElementById("editPermDelete").checked,
+      move_obj: document.getElementById("editPermMove").checked,
+      copy: document.getElementById("editPermCopy").checked,
+      create_dir: document.getElementById("editPermCreateDir").checked,
+      list: document.getElementById("editPermList").checked,
+    };
 
-  const result = await updatePermissions(username, permissions);
-  if (result.code === 200) {
-    hideEditPermissionsModal();
-    showToast("权限更新成功", "success");
-    loadUsers();
-  } else {
-    showToast("更新失败：" + result.message, "error");
+    const result = await updatePermissions(username, permissions);
+    if (result.code === 200) {
+      hideEditPermissionsModal();
+      showToast("权限更新成功", "success");
+      loadUsers();
+    } else {
+      showToast("更新失败：" + result.message, "error");
+    }
+  } catch (error) {
+    console.error("更新权限失败:", error);
+    showToast("更新失败：" + error.message, "error");
   }
 }
 
@@ -470,24 +537,29 @@ async function confirmEditPermissions() {
  * @param {number} index - 存储索引
  */
 async function confirmDeleteStorage(name, type, index) {
-  if (!confirm(`确定要删除存储 "${name}" 吗？此操作不可撤销！`)) {
-    return;
-  }
+  try {
+    if (!confirm(`确定要删除存储 "${name}" 吗？此操作不可撤销！`)) {
+      return;
+    }
 
-  const endpoint =
-    type === "public"
-      ? `/admin/storage/pub/delete/${index}`
-      : `/admin/storage/private/delete/${index}`;
+    const endpoint =
+      type === "public"
+        ? `/admin/storage/pub/delete/${index}`
+        : `/admin/storage/private/delete/${index}`;
 
-  const result = await apiRequest(endpoint, {
-    method: "DELETE",
-  });
+    const result = await apiRequest(endpoint, {
+      method: "DELETE",
+    });
 
-  if (result.code === 200) {
-    showToast("存储删除成功", "success");
-    loadStorages();
-  } else {
-    showToast("删除失败：" + result.message, "error");
+    if (result.code === 200) {
+      showToast("存储删除成功", "success");
+      loadStorages();
+    } else {
+      showToast("删除失败：" + result.message, "error");
+    }
+  } catch (error) {
+    console.error("删除存储失败:", error);
+    showToast("删除失败：" + error.message, "error");
   }
 }
 
@@ -495,9 +567,13 @@ async function confirmDeleteStorage(name, type, index) {
  * 退出登录
  */
 function logout() {
-  localStorage.removeItem("rlist_auth_token");
-  localStorage.removeItem("rlist_current_user");
-  window.location.href = "/index.html";
+  try {
+    localStorage.removeItem("rlist_auth_token");
+    localStorage.removeItem("rlist_current_user");
+    window.location.href = "/index.html";
+  } catch (error) {
+    console.error("退出登录失败:", error);
+  }
 }
 
 /**

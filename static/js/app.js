@@ -13,8 +13,16 @@ let selectedPathForAction = null;
 let isPublicStorageMode = false; // 当前存储模式：false=私有，true=公开
 let currentStoragePath = "/"; // 当前存储路径
 
+// 路径历史记录
+let pathHistory = [];
+let pathHistoryIndex = -1;
+
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
+  // 从 URL 参数获取 path 参数
+  const urlParams = new URLSearchParams(window.location.search);
+  const pathParam = urlParams.get("path");
+
   // 初始化文件管理器
   fileManager = new FileManager({
     onFilesLoaded: renderFiles,
@@ -46,6 +54,51 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!e.target.closest(".context-menu")) {
       hideContextMenu();
     }
+  });
+
+  // 监听浏览器前进/后退
+  window.addEventListener("popstate", (e) => {
+    if (e.state && e.state.path !== undefined) {
+      // 从历史记录导航
+      if (isPublicStorageMode) {
+        currentStoragePath = e.state.path;
+      } else {
+        fileManager.currentPath = e.state.path;
+      }
+
+      // 更新路径历史索引
+      const historyIndex = pathHistory.indexOf(e.state.path);
+      if (historyIndex !== -1) {
+        pathHistoryIndex = historyIndex;
+      }
+
+      // 更新 UI
+      updateBreadcrumb();
+      loadCurrentStorageFiles();
+      updateNavButtons();
+    }
+  });
+
+  // 路径输入框回车确认
+  const pathInput = document.getElementById("pathInput");
+  if (pathInput) {
+    pathInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        confirmPathInput();
+      }
+    });
+  }
+
+  // 全局错误处理 - 捕获未处理的点击事件异常
+  window.addEventListener("error", (e) => {
+    console.error("全局错误:", e.error);
+    // 不阻止默认行为，但记录错误以便调试
+  });
+
+  // 捕获未处理的 Promise rejection
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("未处理的 Promise rejection:", e.reason);
+    // 不阻止默认行为，但记录错误以便调试
   });
 });
 
@@ -110,8 +163,29 @@ function showMainInterface(username) {
   if (storageSwitch) {
     storageSwitch.style.display = "flex";
   }
+
+  // 从 URL 参数获取 path 参数
+  const urlParams = new URLSearchParams(window.location.search);
+  const pathParam = urlParams.get("path");
+  if (pathParam) {
+    const decodedPath = decodeURIComponent(pathParam);
+    if (isPublicStorageMode) {
+      currentStoragePath = decodedPath;
+    } else {
+      fileManager.currentPath = decodedPath;
+    }
+    // 初始化路径历史
+    pathHistory = [decodedPath];
+    pathHistoryIndex = 0;
+  } else {
+    // 默认初始化路径历史
+    pathHistory = ["/"];
+    pathHistoryIndex = 0;
+  }
+
   setView(currentView);
   loadCurrentStorageFiles();
+  updateNavButtons();
 }
 
 /**
@@ -128,28 +202,35 @@ function showLoginInterface() {
  * 处理登录
  */
 async function handleLogin() {
-  const username = document.getElementById("loginUsername").value.trim();
-  const password = document.getElementById("loginPassword").value;
-  const authMessage = document.getElementById("authMessage");
+  try {
+    const username = document.getElementById("loginUsername").value.trim();
+    const password = document.getElementById("loginPassword").value;
+    const authMessage = document.getElementById("authMessage");
 
-  if (!username || !password) {
-    authMessage.textContent = "请输入用户名和密码";
-    authMessage.className = "error";
-    return;
-  }
+    if (!username || !password) {
+      authMessage.textContent = "请输入用户名和密码";
+      authMessage.className = "error";
+      return;
+    }
 
-  authMessage.textContent = "登录中...";
-  authMessage.className = "";
+    authMessage.textContent = "登录中...";
+    authMessage.className = "";
 
-  const result = await login(username, password);
-  if (result.success) {
-    authMessage.textContent = "登录成功，正在跳转...";
-    authMessage.className = "success";
-    setTimeout(() => {
-      showMainInterface(username);
-    }, 1000);
-  } else {
-    authMessage.textContent = result.message;
+    const result = await login(username, password);
+    if (result.success) {
+      authMessage.textContent = "登录成功，正在跳转...";
+      authMessage.className = "success";
+      setTimeout(() => {
+        showMainInterface(username);
+      }, 1000);
+    } else {
+      authMessage.textContent = result.message;
+      authMessage.className = "error";
+    }
+  } catch (error) {
+    console.error("登录失败:", error);
+    const authMessage = document.getElementById("authMessage");
+    authMessage.textContent = "登录失败：" + error.message;
     authMessage.className = "error";
   }
 }
@@ -167,26 +248,16 @@ function toggleStorageMode(isPublic) {
 }
 
 /**
- * 加载当前存储模式的文件列表
- */
-function loadCurrentStorageFiles() {
-  if (isPublicStorageMode) {
-    loadPublicStorageFiles();
-  } else {
-    fileManager.loadFiles("/");
-  }
-}
-
-/**
  * 加载公开存储文件列表
  */
 async function loadPublicStorageFiles() {
   const fileList = document.getElementById("fileList");
   if (!fileList) return;
 
-  fileList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-
   try {
+    fileList.innerHTML =
+      '<div class="loading"><div class="spinner"></div></div>';
+
     const response = await fetch("/obs/list", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -223,6 +294,7 @@ async function loadPublicStorageFiles() {
       showToast("加载文件列表失败：" + result.message, "error");
     }
   } catch (error) {
+    console.error("加载公开存储文件列表失败:", error);
     fileList.innerHTML =
       '<div class="empty-state"><i class="ti ti-wifi-off"></i><p>无法连接到服务器</p></div>';
     showToast("网络错误：" + error.message, "error");
@@ -233,13 +305,14 @@ async function loadPublicStorageFiles() {
  * 显示公开存储列表
  */
 async function showPublicStorage() {
-  const modal = document.getElementById("publicStorageModal");
-  const content = document.getElementById("publicStorageContent");
-
-  modal.style.display = "flex";
-  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-
   try {
+    const modal = document.getElementById("publicStorageModal");
+    const content = document.getElementById("publicStorageContent");
+
+    modal.style.display = "flex";
+    content.innerHTML =
+      '<div class="loading"><div class="spinner"></div></div>';
+
     // 获取公开存储列表（从 /api/admin/storage/list 获取）
     const response = await fetch("/api/admin/storage/list", {
       headers: getAuthHeaders(),
@@ -297,6 +370,8 @@ async function showPublicStorage() {
       content.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i><p>获取公开存储列表失败</p></div>`;
     }
   } catch (error) {
+    console.error("显示公开存储列表失败:", error);
+    const content = document.getElementById("publicStorageContent");
     content.innerHTML = `<div class="empty-state"><i class="ti ti-alert-circle"></i><p>网络错误：${escapeHtml(error.message)}</p></div>`;
   }
 }
@@ -305,7 +380,11 @@ async function showPublicStorage() {
  * 隐藏公开存储模态框
  */
 function hidePublicStorageModal() {
-  document.getElementById("publicStorageModal").style.display = "none";
+  try {
+    document.getElementById("publicStorageModal").style.display = "none";
+  } catch (error) {
+    console.error("隐藏公开存储模态框失败:", error);
+  }
 }
 
 /**
@@ -314,17 +393,22 @@ function hidePublicStorageModal() {
  * @param {string} name - 存储名称
  */
 function openPublicStorage(path, name) {
-  // 切换到公开存储模式
-  isPublicStorageMode = true;
-  currentStoragePath = path;
-  // 更新开关状态
-  const switchToggle = document.getElementById("storageSwitchToggle");
-  if (switchToggle) {
-    switchToggle.checked = true;
+  try {
+    // 切换到公开存储模式
+    isPublicStorageMode = true;
+    currentStoragePath = path;
+    // 更新开关状态
+    const switchToggle = document.getElementById("storageSwitchToggle");
+    if (switchToggle) {
+      switchToggle.checked = true;
+    }
+    hidePublicStorageModal();
+    loadCurrentStorageFiles();
+    showToast(`已切换到公开存储：${name}`, "success");
+  } catch (error) {
+    console.error("打开公开存储失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
-  hidePublicStorageModal();
-  loadCurrentStorageFiles();
-  showToast(`已切换到公开存储：${name}`, "success");
 }
 
 // ==================== 文件列表相关函数 ====================
@@ -332,33 +416,225 @@ function openPublicStorage(path, name) {
 /**
  * 导航到指定路径
  * @param {string} path - 路径
+ * @param {boolean} addToHistory - 是否添加到历史记录
  */
-function navigateTo(path) {
-  if (isPublicStorageMode) {
-    currentStoragePath = path || "/";
-    loadPublicStorageFiles();
-  } else {
-    fileManager.navigateTo(path);
+function navigateTo(path, addToHistory = true) {
+  try {
+    const targetPath = path || "/";
+
+    if (isPublicStorageMode) {
+      currentStoragePath = targetPath;
+    } else {
+      fileManager.navigateTo(targetPath);
+    }
+
+    // 更新 URL 地址栏（使用 history.pushState）
+    if (addToHistory) {
+      // 添加到路径历史
+      pathHistory = pathHistory.slice(0, pathHistoryIndex + 1);
+      pathHistory.push(targetPath);
+      pathHistoryIndex++;
+
+      // 更新浏览器历史记录
+      const newUrl = buildUrlWithPath(targetPath);
+      history.pushState({ path: targetPath }, "", newUrl);
+    }
+
+    // 更新面包屑和文件列表
+    updateBreadcrumb();
+    loadCurrentStorageFiles();
+
+    // 更新导航按钮状态
+    updateNavButtons();
+  } catch (error) {
+    console.error("导航失败:", error);
+    showToast("导航失败：" + error.message, "error");
   }
-  updateBreadcrumb();
 }
 
 /**
- * 进入文件夹
+ * 构建带路径参数的 URL
  * @param {string} path - 路径
+ * @returns {string} URL
  */
-function enterFolder(path) {
-  navigateTo(path);
+function buildUrlWithPath(path) {
+  const url = new URL(window.location.href);
+
+  // 设置 path 参数
+  if (path !== "/") {
+    url.searchParams.set("path", encodeURIComponent(path));
+  } else {
+    url.searchParams.delete("path");
+  }
+
+  return url.toString();
+}
+
+/**
+ * 更新导航按钮状态
+ */
+function updateNavButtons() {
+  const backBtn = document.getElementById("backBtn");
+  const forwardBtn = document.getElementById("forwardBtn");
+
+  if (backBtn) {
+    backBtn.disabled = pathHistoryIndex <= 0;
+  }
+  if (forwardBtn) {
+    forwardBtn.disabled = pathHistoryIndex >= pathHistory.length - 1;
+  }
+}
+
+/**
+ * 后退
+ */
+function goBack() {
+  try {
+    if (pathHistoryIndex > 0) {
+      pathHistoryIndex--;
+      const path = pathHistory[pathHistoryIndex];
+      history.back();
+    }
+  } catch (error) {
+    console.error("后退失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
+}
+
+/**
+ * 前进
+ */
+function goForward() {
+  try {
+    if (pathHistoryIndex < pathHistory.length - 1) {
+      pathHistoryIndex++;
+      const path = pathHistory[pathHistoryIndex];
+      history.forward();
+    }
+  } catch (error) {
+    console.error("前进失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
+}
+
+/**
+ * 切换路径输入框显示
+ */
+function togglePathInput() {
+  try {
+    const breadcrumb = document.getElementById("breadcrumb");
+    const pathInputWrapper = document.getElementById("pathInputWrapper");
+    const pathInput = document.getElementById("pathInput");
+
+    if (breadcrumb.style.display === "none") {
+      // 显示面包屑
+      breadcrumb.style.display = "flex";
+      pathInputWrapper.style.display = "none";
+    } else {
+      // 显示输入框
+      breadcrumb.style.display = "none";
+      pathInputWrapper.style.display = "flex";
+      const currentPath = isPublicStorageMode
+        ? currentStoragePath
+        : fileManager?.currentPath || "/";
+      pathInput.value = currentPath;
+      pathInput.focus();
+      pathInput.select();
+    }
+  } catch (error) {
+    console.error("切换路径输入框失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
+}
+
+/**
+ * 确认路径输入
+ */
+function confirmPathInput() {
+  try {
+    const pathInput = document.getElementById("pathInput");
+    const newPath = pathInput.value.trim();
+
+    if (newPath) {
+      // 规范化路径
+      const normalizedPath = normalizePath(newPath);
+      navigateTo(normalizedPath);
+    }
+
+    // 切换回面包屑显示
+    togglePathInput();
+  } catch (error) {
+    console.error("确认路径输入失败:", error);
+    showToast("路径无效：" + error.message, "error");
+  }
+}
+
+/**
+ * 取消路径输入
+ */
+function cancelPathInput() {
+  try {
+    togglePathInput();
+  } catch (error) {
+    console.error("取消路径输入失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
+}
+
+/**
+ * 规范化路径
+ * @param {string} path - 路径
+ * @returns {string} 规范化后的路径
+ */
+function normalizePath(path) {
+  // 确保路径以 / 开头
+  if (!path.startsWith("/")) {
+    path = "/" + path;
+  }
+
+  // 处理 .. 和 .
+  const parts = path.split("/").filter((p) => p && p !== ".");
+  const result = [];
+
+  for (const part of parts) {
+    if (part === "..") {
+      if (result.length > 0) {
+        result.pop();
+      }
+    } else {
+      result.push(part);
+    }
+  }
+
+  return "/" + result.join("/");
+}
+
+/**
+ * 加载当前存储模式的文件列表
+ */
+function loadCurrentStorageFiles() {
+  try {
+    if (isPublicStorageMode) {
+      loadPublicStorageFiles();
+    } else {
+      fileManager.loadFiles(fileManager.currentPath);
+    }
+  } catch (error) {
+    console.error("加载文件列表失败:", error);
+    showToast("加载文件列表失败：" + error.message, "error");
+  }
 }
 
 /**
  * 刷新文件列表
  */
 function refresh() {
-  if (isPublicStorageMode) {
-    loadPublicStorageFiles();
-  } else {
-    fileManager.refresh();
+  try {
+    loadCurrentStorageFiles();
+    showToast("刷新成功", "success");
+  } catch (error) {
+    console.error("刷新失败:", error);
+    showToast("刷新失败：" + error.message, "error");
   }
 }
 
@@ -367,17 +643,22 @@ function refresh() {
  * @param {string} query - 搜索词
  */
 function handleSearch(query) {
-  if (!fileManager) return;
+  try {
+    if (!fileManager) return;
 
-  if (isPublicStorageMode) {
-    // 公开存储模式下使用本地数据搜索
-    const filtered = (fileManager.filesData || []).filter((f) =>
-      f.name.toLowerCase().includes(query.toLowerCase()),
-    );
-    renderFiles(filtered);
-  } else {
-    const filtered = fileManager.search(query);
-    renderFiles(filtered);
+    if (isPublicStorageMode) {
+      // 公开存储模式下使用本地数据搜索
+      const filtered = (fileManager.filesData || []).filter((f) =>
+        f.name.toLowerCase().includes(query.toLowerCase()),
+      );
+      renderFiles(filtered);
+    } else {
+      const filtered = fileManager.search(query);
+      renderFiles(filtered);
+    }
+  } catch (error) {
+    console.error("搜索文件失败:", error);
+    showToast("搜索失败：" + error.message, "error");
   }
 }
 
@@ -385,21 +666,45 @@ function handleSearch(query) {
  * 更新面包屑
  */
 function updateBreadcrumb() {
-  const breadcrumb = document.getElementById("breadcrumb");
-  const currentPath = isPublicStorageMode
-    ? currentStoragePath
-    : fileManager?.currentPath || "/";
-  const parts = currentPath.split("/").filter((p) => p);
-  let html =
-    '<a href="#" onclick="navigateTo(\'/\'); return false;"><i class="ti ti-home"></i></a>';
+  try {
+    const breadcrumb = document.getElementById("breadcrumb");
+    if (!breadcrumb) return;
 
-  let path = "";
-  parts.forEach((part) => {
-    path += "/" + part;
-    html += ` <span class="separator">/</span> <a href="#" onclick="navigateTo('${escapeHtml(path)}'); return false;">${escapeHtml(part)}</a>`;
-  });
+    const currentPath = isPublicStorageMode
+      ? currentStoragePath
+      : fileManager?.currentPath || "/";
+    const parts = currentPath.split("/").filter((p) => p);
+    let html =
+      '<a href="#" onclick="navigateTo(\'/\'); return false;" class="breadcrumb-item">' +
+      '<i class="ti ti-home"></i>' +
+      "<span>首页</span>" +
+      "</a>";
 
-  breadcrumb.innerHTML = html;
+    let path = "";
+    parts.forEach((part, index) => {
+      path += "/" + part;
+      const isLast = index === parts.length - 1;
+
+      // 添加分隔符
+      html += '<span class="breadcrumb-separator">/</span>';
+
+      // 最后一项（当前路径）添加 active 类
+      if (isLast) {
+        html += `<a href="#" onclick="navigateTo('${escapeHtml(path)}'); return false;" class="breadcrumb-item active">
+        <span>${escapeHtml(part)}</span>
+      </a>`;
+      } else {
+        html += `<a href="#" onclick="navigateTo('${escapeHtml(path)}'); return false;" class="breadcrumb-item">
+        <span>${escapeHtml(part)}</span>
+      </a>`;
+      }
+    });
+
+    breadcrumb.innerHTML = html;
+  } catch (error) {
+    console.error("更新面包屑失败:", error);
+    showToast("更新面包屑失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -410,22 +715,23 @@ function renderFiles(files) {
   const fileList = document.getElementById("fileList");
   if (!fileList) return;
 
-  if (!files || files.length === 0) {
-    fileList.innerHTML =
-      '<div class="empty-state"><i class="ti ti-folder-open"></i><p>此目录为空</p></div>';
-    updateDeleteButton();
-    return;
-  }
+  try {
+    if (!files || files.length === 0) {
+      fileList.innerHTML =
+        '<div class="empty-state"><i class="ti ti-folder-open"></i><p>此目录为空</p></div>';
+      updateDeleteButton();
+      return;
+    }
 
-  // 目录排在前面
-  const dirs = files.filter((f) => f.file_type === "dir");
-  const fileItems = files.filter((f) => f.file_type === "file");
-  const sortedFiles = [...dirs, ...fileItems];
+    // 目录排在前面
+    const dirs = files.filter((f) => f.file_type === "dir");
+    const fileItems = files.filter((f) => f.file_type === "file");
+    const sortedFiles = [...dirs, ...fileItems];
 
-  // 公开存储模式下隐藏复选框
-  const showCheckbox = !isPublicStorageMode;
+    // 公开存储模式下隐藏复选框
+    const showCheckbox = !isPublicStorageMode;
 
-  fileList.innerHTML = `
+    fileList.innerHTML = `
     <div class="file-list-header">
         ${showCheckbox ? '<div><input type="checkbox" class="checkbox" onchange="toggleSelectAll(this.checked)"></div>' : ""}
         <div>名称</div>
@@ -486,7 +792,34 @@ function renderFiles(files) {
       )
       .join("")}
   `;
-  updateDeleteButton();
+    updateDeleteButton();
+  } catch (error) {
+    console.error("渲染文件列表失败:", error);
+    fileList.innerHTML = `
+      <div class="empty-state">
+        <i class="ti ti-alert-circle"></i>
+        <p>渲染文件列表失败</p>
+        <p style="margin-top: 8px; color: var(--text-secondary); font-size: 12px;">${escapeHtml(error.message)}</p>
+        <button class="btn btn-primary" onclick="loadCurrentStorageFiles()" style="margin-top: 16px;">
+          <i class="ti ti-refresh"></i> 重试
+        </button>
+      </div>
+    `;
+    showToast("渲染文件列表失败：" + error.message, "error");
+  }
+}
+
+/**
+ * 进入文件夹
+ * @param {string} path - 路径
+ */
+function enterFolder(path) {
+  try {
+    navigateTo(path);
+  } catch (error) {
+    console.error("进入文件夹失败:", error);
+    showToast("进入文件夹失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -495,10 +828,15 @@ function renderFiles(files) {
  * @param {string} type - 类型
  */
 function handleDoubleClick(path, type) {
-  if (type === "dir") {
-    enterFolder(path);
-  } else {
-    previewFile(path, path.split("/").pop());
+  try {
+    if (type === "dir") {
+      enterFolder(path);
+    } else {
+      previewFile(path, path.split("/").pop());
+    }
+  } catch (error) {
+    console.error("双击处理失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
 }
 
@@ -509,23 +847,28 @@ function handleDoubleClick(path, type) {
  * @param {Event} event - 事件对象
  */
 function handleFileClick(path, type, event) {
-  // 如果点击了复选框或操作按钮，不触发此处理
-  if (
-    event.target.closest(".checkbox") ||
-    event.target.closest(".file-actions")
-  ) {
-    return;
-  }
-
-  if (type === "dir") {
-    // 文件夹：进入并添加动画
-    enterFolderWithAnimation(path);
-  } else {
-    // 文件：切换选中状态
-    if (!isPublicStorageMode) {
-      const isSelected = fileManager.selectedFiles.has(path);
-      toggleSelection(path, !isSelected, event);
+  try {
+    // 如果点击了复选框或操作按钮，不触发此处理
+    if (
+      event.target.closest(".checkbox") ||
+      event.target.closest(".file-actions")
+    ) {
+      return;
     }
+
+    if (type === "dir") {
+      // 文件夹：进入并添加动画
+      enterFolderWithAnimation(path);
+    } else {
+      // 文件：切换选中状态
+      if (!isPublicStorageMode) {
+        const isSelected = fileManager.selectedFiles.has(path);
+        toggleSelection(path, !isSelected, event);
+      }
+    }
+  } catch (error) {
+    console.error("处理文件点击失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
 }
 
@@ -534,20 +877,24 @@ function handleFileClick(path, type, event) {
  * @param {string} path - 路径
  */
 function enterFolderWithAnimation(path) {
-  const fileList = document.getElementById("fileList");
-  if (!fileList) return;
+  try {
+    const fileList = document.getElementById("fileList");
+    if (!fileList) return;
 
-  // 添加进入动画类
-  fileList.classList.add("nav-entering");
+    // 添加进入动画类
+    fileList.classList.add("nav-entering");
 
-  // 执行导航
-  navigateTo(path);
-  updateBreadcrumb();
+    // 执行导航（添加到历史记录）
+    navigateTo(path);
 
-  // 动画结束后移除类
-  setTimeout(() => {
-    fileList.classList.remove("nav-entering");
-  }, 400);
+    // 动画结束后移除类
+    setTimeout(() => {
+      fileList.classList.remove("nav-entering");
+    }, 400);
+  } catch (error) {
+    console.error("进入文件夹失败:", error);
+    showToast("进入文件夹失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -576,18 +923,23 @@ function navigateUpWithAnimation() {
  * @param {Event} event - 事件对象
  */
 function toggleSelection(path, checked, event) {
-  // 阻止事件冒泡，防止触发文件项点击
-  if (event) {
-    event.stopPropagation();
-  }
+  try {
+    // 阻止事件冒泡，防止触发文件项点击
+    if (event) {
+      event.stopPropagation();
+    }
 
-  if (isPublicStorageMode) {
-    showToast("公开存储模式下不支持选择操作", "error");
-    return;
+    if (isPublicStorageMode) {
+      showToast("公开存储模式下不支持选择操作", "error");
+      return;
+    }
+    fileManager.toggleSelection(path, checked);
+    updateDeleteButton();
+    renderFiles(fileManager.filesData);
+  } catch (error) {
+    console.error("切换选择状态失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
-  fileManager.toggleSelection(path, checked);
-  updateDeleteButton();
-  renderFiles(fileManager.filesData);
 }
 
 /**
@@ -595,13 +947,18 @@ function toggleSelection(path, checked, event) {
  * @param {boolean} checked - 是否全选
  */
 function toggleSelectAll(checked) {
-  if (isPublicStorageMode) {
-    showToast("公开存储模式下不支持选择操作", "error");
-    return;
+  try {
+    if (isPublicStorageMode) {
+      showToast("公开存储模式下不支持选择操作", "error");
+      return;
+    }
+    fileManager.toggleSelectAll(checked);
+    updateDeleteButton();
+    renderFiles(fileManager.filesData);
+  } catch (error) {
+    console.error("全选/取消全选失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
-  fileManager.toggleSelectAll(checked);
-  updateDeleteButton();
-  renderFiles(fileManager.filesData);
 }
 
 /**
@@ -625,15 +982,20 @@ function updateDeleteButton() {
  * 删除选中的文件
  */
 async function deleteSelected() {
-  if (isPublicStorageMode) {
-    showToast("公开存储模式下不支持删除操作", "error");
-    return;
-  }
-  const count = fileManager.getSelectedCount();
-  if (count === 0) return;
+  try {
+    if (isPublicStorageMode) {
+      showToast("公开存储模式下不支持删除操作", "error");
+      return;
+    }
+    const count = fileManager.getSelectedCount();
+    if (count === 0) return;
 
-  // 显示删除确认弹窗
-  showDeleteConfirmModal(count);
+    // 显示删除确认弹窗
+    showDeleteConfirmModal(count);
+  } catch (error) {
+    console.error("删除选中的文件失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -641,25 +1003,38 @@ async function deleteSelected() {
  * @param {number} count - 删除数量
  */
 function showDeleteConfirmModal(count) {
-  const modal = document.getElementById("deleteConfirmModal");
-  const message = document.getElementById("deleteMessage");
-  message.textContent = `确定要删除选中的 ${count} 个项目吗？`;
-  modal.style.display = "flex";
+  try {
+    const modal = document.getElementById("deleteConfirmModal");
+    const message = document.getElementById("deleteMessage");
+    message.textContent = `确定要删除选中的 ${count} 个项目吗？`;
+    modal.style.display = "flex";
+  } catch (error) {
+    console.error("显示删除确认弹窗失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 隐藏删除确认弹窗
  */
 function hideDeleteConfirmModal() {
-  document.getElementById("deleteConfirmModal").style.display = "none";
+  try {
+    document.getElementById("deleteConfirmModal").style.display = "none";
+  } catch (error) {
+    console.error("隐藏删除确认弹窗失败:", error);
+  }
 }
 
 /**
  * 处理删除弹窗背景点击
  */
 function handleDeleteModalOverlayClick(event) {
-  if (event.target === event.currentTarget) {
-    hideDeleteConfirmModal();
+  try {
+    if (event.target === event.currentTarget) {
+      hideDeleteConfirmModal();
+    }
+  } catch (error) {
+    console.error("处理删除弹窗背景点击失败:", error);
   }
 }
 
@@ -669,18 +1044,23 @@ function handleDeleteModalOverlayClick(event) {
 async function confirmDelete() {
   hideDeleteConfirmModal();
 
-  // 检查是否有回调函数
-  if (window.deleteCallback) {
-    const callback = window.deleteCallback;
-    window.deleteCallback = null;
-    await callback();
-  } else {
-    // 默认的批量删除逻辑
-    const result = await fileManager.deleteSelected();
-    showToast(
-      `已删除 ${result.count}/${result.total} 个项目`,
-      result.count === result.total ? "success" : "error",
-    );
+  try {
+    // 检查是否有回调函数
+    if (window.deleteCallback) {
+      const callback = window.deleteCallback;
+      window.deleteCallback = null;
+      await callback();
+    } else {
+      // 默认的批量删除逻辑
+      const result = await fileManager.deleteSelected();
+      showToast(
+        `已删除 ${result.count}/${result.total} 个项目`,
+        result.count === result.total ? "success" : "error",
+      );
+    }
+  } catch (error) {
+    console.error("删除失败:", error);
+    showToast("删除失败：" + error.message, "error");
   }
 }
 
@@ -690,13 +1070,18 @@ async function confirmDelete() {
  * 显示新建文件夹模态框
  */
 function showNewFolderModal() {
-  if (isPublicStorageMode) {
-    showToast("公开存储模式下不支持创建文件夹", "error");
-    return;
+  try {
+    if (isPublicStorageMode) {
+      showToast("公开存储模式下不支持创建文件夹", "error");
+      return;
+    }
+    document.getElementById("newFolderModal").style.display = "flex";
+    document.getElementById("folderNameInput").value = "";
+    document.getElementById("folderNameInput").focus();
+  } catch (error) {
+    console.error("显示新建文件夹模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
-  document.getElementById("newFolderModal").style.display = "flex";
-  document.getElementById("folderNameInput").value = "";
-  document.getElementById("folderNameInput").focus();
 }
 
 /**
@@ -707,66 +1092,55 @@ function hideNewFolderModal() {
 }
 
 /**
- * 创建文件夹
- */
-async function createFolder() {
-  if (isPublicStorageMode) {
-    showToast("公开存储模式下不支持创建文件夹", "error");
-    return;
-  }
-  const name = document.getElementById("folderNameInput").value.trim();
-  if (!name) {
-    showToast("请输入文件夹名称", "error");
-    return;
-  }
-
-  const result = await fileManager.createFolder(name);
-  if (result.success) {
-    hideNewFolderModal();
-    showToast("文件夹创建成功", "success");
-  } else {
-    showToast("创建失败：" + result.message, "error");
-  }
-}
-
-// ==================== 重命名 ====================
-
-/**
  * 显示重命名模态框
  * @param {string} path - 路径
  * @param {string} name - 名称
  */
 function showRenameModal(path, name) {
-  selectedPathForAction = path;
-  document.getElementById("renameModal").style.display = "flex";
-  document.getElementById("renameInput").value = name;
-  document.getElementById("renameInput").focus();
-  document.getElementById("renameInput").select();
+  try {
+    selectedPathForAction = path;
+    document.getElementById("renameModal").style.display = "flex";
+    document.getElementById("renameInput").value = name;
+    document.getElementById("renameInput").focus();
+    document.getElementById("renameInput").select();
+  } catch (error) {
+    console.error("显示重命名模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 隐藏重命名模态框
  */
 function hideRenameModal() {
-  document.getElementById("renameModal").style.display = "none";
+  try {
+    document.getElementById("renameModal").style.display = "none";
+  } catch (error) {
+    console.error("隐藏重命名模态框失败:", error);
+  }
 }
 
 /**
  * 确认重命名
  */
 async function confirmRename() {
-  const newName = document.getElementById("renameInput").value.trim();
-  if (!newName) {
-    showToast("请输入新名称", "error");
-    return;
-  }
+  try {
+    const newName = document.getElementById("renameInput").value.trim();
+    if (!newName) {
+      showToast("请输入新名称", "error");
+      return;
+    }
 
-  const result = await fileManager.rename(selectedPathForAction, newName);
-  if (result.success) {
-    hideRenameModal();
-    showToast("重命名成功", "success");
-  } else {
-    showToast("重命名失败：" + result.message, "error");
+    const result = await fileManager.rename(selectedPathForAction, newName);
+    if (result.success) {
+      hideRenameModal();
+      showToast("重命名成功", "success");
+    } else {
+      showToast("重命名失败：" + result.message, "error");
+    }
+  } catch (error) {
+    console.error("重命名失败:", error);
+    showToast("重命名失败：" + error.message, "error");
   }
 }
 
@@ -786,66 +1160,76 @@ let previewXhr = null; // 当前预览下载的 XHR 对象
  * @param {string} name - 文件名
  */
 async function previewFile(path, name) {
-  const ext = name.split(".").pop().toLowerCase();
-  const previewContent = document.getElementById("previewContent");
-  const previewFileNameEl = document.getElementById("previewFileName");
-  previewFilePath = path;
-  previewZoom = 1;
-  previewRotation = 0;
-  previewPdfDoc = null;
-  previewFileName = name;
+  try {
+    const ext = name.split(".").pop().toLowerCase();
+    const previewContent = document.getElementById("previewContent");
+    const previewFileNameEl = document.getElementById("previewFileName");
+    previewFilePath = path;
+    previewZoom = 1;
+    previewRotation = 0;
+    previewPdfDoc = null;
+    previewFileName = name;
 
-  // 更新文件名显示
-  if (previewFileNameEl) {
-    previewFileNameEl.textContent = name;
-  }
-
-  // 重置缩放显示
-  const zoomLevelEl = document.getElementById("zoomLevel");
-  if (zoomLevelEl) {
-    zoomLevelEl.textContent = "100%";
-  }
-
-  const imageExts = ["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico"];
-  const videoExts = ["mp4", "webm", "ogg", "mov", "avi", "mkv"];
-  const audioExts = ["mp3", "wav", "flac", "aac", "ogg"];
-  const textExts = [
-    "txt",
-    "md",
-    "log",
-    "json",
-    "xml",
-    "yaml",
-    "yml",
-    "js",
-    "ts",
-    "py",
-    "java",
-    "c",
-    "cpp",
-    "go",
-    "rs",
-    "html",
-    "css",
-    "sh",
-  ];
-  const docExts = ["pdf"];
-
-  // 公开模式使用公开下载端点
-  let url;
-  if (isPublicStorageMode) {
-    url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
-  } else {
-    const result = await fileManager.getPreviewUrl(path);
-    if (!result.success) {
-      showToast("获取文件失败：" + result.message, "error");
-      return;
+    // 更新文件名显示
+    if (previewFileNameEl) {
+      previewFileNameEl.textContent = name;
     }
-    url = result.url;
-  }
 
-  // 显示加载进度条
-  previewContent.innerHTML = `
+    // 重置缩放显示
+    const zoomLevelEl = document.getElementById("zoomLevel");
+    if (zoomLevelEl) {
+      zoomLevelEl.textContent = "100%";
+    }
+
+    const imageExts = [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "svg",
+      "webp",
+      "bmp",
+      "ico",
+    ];
+    const videoExts = ["mp4", "webm", "ogg", "mov", "avi", "mkv"];
+    const audioExts = ["mp3", "wav", "flac", "aac", "ogg"];
+    const textExts = [
+      "txt",
+      "md",
+      "log",
+      "json",
+      "xml",
+      "yaml",
+      "yml",
+      "js",
+      "ts",
+      "py",
+      "java",
+      "c",
+      "cpp",
+      "go",
+      "rs",
+      "html",
+      "css",
+      "sh",
+    ];
+    const docExts = ["pdf"];
+
+    // 公开模式使用公开下载端点
+    let url;
+    if (isPublicStorageMode) {
+      url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
+    } else {
+      const result = await fileManager.getPreviewUrl(path);
+      if (!result.success) {
+        showToast("获取文件失败：" + result.message, "error");
+        return;
+      }
+      url = result.url;
+    }
+
+    // 显示加载进度条
+    previewContent.innerHTML = `
     <div class="preview-loading">
       <div class="spinner"></div>
       <p class="loading-text">正在加载文件...</p>
@@ -853,27 +1237,33 @@ async function previewFile(path, name) {
       <p class="loading-percent">0%</p>
     </div>`;
 
-  if (imageExts.includes(ext)) {
-    previewFileType = "image";
-    await loadImageWithProgress(url, previewContent, name);
-  } else if (videoExts.includes(ext)) {
-    previewFileType = "video";
-    await loadVideoWithProgress(url, previewContent);
-  } else if (audioExts.includes(ext)) {
-    previewFileType = "audio";
-    await loadAudioWithProgress(url, previewContent);
-  } else if (textExts.includes(ext)) {
-    previewFileType = "text";
-    await loadTextWithProgress(url, previewContent);
-  } else if (docExts.includes(ext)) {
-    previewFileType = "pdf";
-    await renderPdfPreview(url, previewContent);
-  } else {
-    previewFileType = "other";
-    previewContent.innerHTML = `<div class="preview-placeholder"><i class="ti ti-file"></i><p>此文件类型不支持预览</p><p style="margin-top:8px;color:var(--text-secondary)">您可以下载文件后查看</p></div>`;
-  }
+    if (imageExts.includes(ext)) {
+      previewFileType = "image";
+      await loadImageWithProgress(url, previewContent, name);
+    } else if (videoExts.includes(ext)) {
+      previewFileType = "video";
+      await loadVideoWithProgress(url, previewContent);
+    } else if (audioExts.includes(ext)) {
+      previewFileType = "audio";
+      await loadAudioWithProgress(url, previewContent);
+    } else if (textExts.includes(ext)) {
+      previewFileType = "text";
+      await loadTextWithProgress(url, previewContent);
+    } else if (docExts.includes(ext)) {
+      previewFileType = "pdf";
+      await renderPdfPreview(url, previewContent);
+    } else {
+      previewFileType = "other";
+      previewContent.innerHTML = `<div class="preview-placeholder"><i class="ti ti-file"></i><p>此文件类型不支持预览</p><p style="margin-top:8px;color:var(--text-secondary)">您可以下载文件后查看</p></div>`;
+    }
 
-  document.getElementById("previewModal").style.display = "flex";
+    document.getElementById("previewModal").style.display = "flex";
+  } catch (error) {
+    console.error("预览文件失败:", error);
+    const previewContent = document.getElementById("previewContent");
+    previewContent.innerHTML = `<div class="preview-placeholder"><i class="ti ti-alert-circle"></i><p>预览失败</p><p style="margin-top:8px;color:var(--text-secondary)">${escapeHtml(error.message)}</p></div>`;
+    showToast("预览失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -1354,17 +1744,21 @@ function waitForPdfJs() {
  * 隐藏预览模态框
  */
 function hidePreviewModal() {
-  // 取消正在进行的下载
-  if (previewXhr) {
-    previewXhr.abort();
-    previewXhr = null;
-  }
+  try {
+    // 取消正在进行的下载
+    if (previewXhr) {
+      previewXhr.abort();
+      previewXhr = null;
+    }
 
-  document.getElementById("previewModal").style.display = "none";
-  document.getElementById("previewContent").innerHTML = "";
-  previewPdfDoc = null;
-  previewZoom = 1;
-  previewRotation = 0;
+    document.getElementById("previewModal").style.display = "none";
+    document.getElementById("previewContent").innerHTML = "";
+    previewPdfDoc = null;
+    previewZoom = 1;
+    previewRotation = 0;
+  } catch (error) {
+    console.error("隐藏预览模态框失败:", error);
+  }
 }
 
 /**
@@ -1381,13 +1775,18 @@ function downloadFromPreview() {
  * @param {string} path - 路径
  */
 async function downloadFile(path) {
-  if (isPublicStorageMode) {
-    // 公开模式使用公开下载端点
-    const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
-    window.open(url, "_blank");
-    showToast("下载已开始", "success");
-  } else {
-    await fileManager.downloadFile(path);
+  try {
+    if (isPublicStorageMode) {
+      // 公开模式使用公开下载端点
+      const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
+      window.open(url, "_blank");
+      showToast("下载已开始", "success");
+    } else {
+      await fileManager.downloadFile(path);
+    }
+  } catch (error) {
+    console.error("下载文件失败:", error);
+    showToast("下载失败：" + error.message, "error");
   }
 }
 
@@ -1398,21 +1797,26 @@ async function downloadFile(path) {
  * @param {FileList} files - 文件列表
  */
 async function handleUploadFiles(files) {
-  if (!files || files.length === 0) return;
+  try {
+    if (!files || files.length === 0) return;
 
-  if (isPublicStorageMode) {
-    showToast("公开存储模式下不支持上传文件", "error");
-    return;
+    if (isPublicStorageMode) {
+      showToast("公开存储模式下不支持上传文件", "error");
+      return;
+    }
+
+    uploadManager.setCurrentPath(fileManager.currentPath);
+
+    for (const file of files) {
+      uploadManager.addFile(file);
+    }
+
+    showUploadProgressModal();
+    await uploadManager.uploadAll();
+  } catch (error) {
+    console.error("处理文件上传失败:", error);
+    showToast("上传失败：" + error.message, "error");
   }
-
-  uploadManager.setCurrentPath(fileManager.currentPath);
-
-  for (const file of files) {
-    uploadManager.addFile(file);
-  }
-
-  showUploadProgressModal();
-  await uploadManager.uploadAll();
 }
 
 /**
@@ -1464,18 +1868,27 @@ function onUploadAllCompleted(tasks) {
  * 显示上传进度模态框
  */
 function showUploadProgressModal() {
-  const modal = document.getElementById("uploadProgressModal");
-  const content = document.getElementById("uploadProgressContent");
-  content.innerHTML = "";
-  modal.style.display = "flex";
+  try {
+    const modal = document.getElementById("uploadProgressModal");
+    const content = document.getElementById("uploadProgressContent");
+    content.innerHTML = "";
+    modal.style.display = "flex";
+  } catch (error) {
+    console.error("显示上传进度模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 隐藏上传进度模态框
  */
 function hideUploadProgressModal() {
-  const modal = document.getElementById("uploadProgressModal");
-  modal.style.display = "none";
+  try {
+    const modal = document.getElementById("uploadProgressModal");
+    modal.style.display = "none";
+  } catch (error) {
+    console.error("隐藏上传进度模态框失败:", error);
+  }
 }
 
 // ==================== 复制/移动 ====================
@@ -1485,12 +1898,17 @@ function hideUploadProgressModal() {
  * @param {string} path - 路径
  */
 function showCopyMoveModal(path) {
-  selectedPathForAction = path;
-  document.getElementById("copyMoveModal").dataset.path = path;
-  document.getElementById("copyMoveModal").style.display = "flex";
-  document.getElementById("targetPathInput").value = "";
-  document.getElementById("pathSelectorStatus").textContent =
-    "点击输入框选择路径";
+  try {
+    selectedPathForAction = path;
+    document.getElementById("copyMoveModal").dataset.path = path;
+    document.getElementById("copyMoveModal").style.display = "flex";
+    document.getElementById("targetPathInput").value = "";
+    document.getElementById("pathSelectorStatus").textContent =
+      "点击输入框选择路径";
+  } catch (error) {
+    console.error("显示复制/移动模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -1504,23 +1922,36 @@ function hideCopyMoveModal() {
  * 显示路径选择器
  */
 function showPathSelector() {
-  document.getElementById("pathSelectorModal").style.display = "flex";
-  loadPathSelector("/");
+  try {
+    document.getElementById("pathSelectorModal").style.display = "flex";
+    loadPathSelector("/");
+  } catch (error) {
+    console.error("显示路径选择器失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 隐藏路径选择器
  */
 function hidePathSelector() {
-  document.getElementById("pathSelectorModal").style.display = "none";
+  try {
+    document.getElementById("pathSelectorModal").style.display = "none";
+  } catch (error) {
+    console.error("隐藏路径选择器失败:", error);
+  }
 }
 
 /**
  * 处理模态框背景点击
  */
 function handleModalOverlayClick(event) {
-  if (event.target === event.currentTarget) {
-    hidePathSelector();
+  try {
+    if (event.target === event.currentTarget) {
+      hidePathSelector();
+    }
+  } catch (error) {
+    console.error("处理模态框背景点击失败:", error);
   }
 }
 
@@ -1674,46 +2105,61 @@ async function loadPathSelector(path) {
  * @param {string} path - 路径
  */
 function selectPath(path) {
-  document.getElementById("targetPathInput").value = path;
-  hidePathSelector();
+  try {
+    document.getElementById("targetPathInput").value = path;
+    hidePathSelector();
+  } catch (error) {
+    console.error("选择路径失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 确认路径选择
  */
 function confirmPathSelection() {
-  const path = document.getElementById("targetPathInput").value;
-  if (path) {
-    document.getElementById("targetPathInput").value = path;
+  try {
+    const path = document.getElementById("targetPathInput").value;
+    if (path) {
+      document.getElementById("targetPathInput").value = path;
+    }
+    hidePathSelector();
+  } catch (error) {
+    console.error("确认路径选择失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
-  hidePathSelector();
 }
 
 /**
  * 确认复制/移动
  */
 async function confirmCopyMove() {
-  const targetPath = document.getElementById("targetPathInput").value.trim();
-  const type = document.getElementById("copyMoveType").value;
+  try {
+    const targetPath = document.getElementById("targetPathInput").value.trim();
+    const type = document.getElementById("copyMoveType").value;
 
-  if (!targetPath) {
-    showToast("请输入目标路径", "error");
-    return;
-  }
+    if (!targetPath) {
+      showToast("请输入目标路径", "error");
+      return;
+    }
 
-  const result = await fileManager.copyOrMove(
-    selectedPathForAction,
-    targetPath,
-    type,
-  );
-  if (result.success) {
-    hideCopyMoveModal();
-    showToast(`${type === "copy" ? "复制" : "移动"}成功`, "success");
-  } else {
-    showToast(
-      `${type === "copy" ? "复制" : "移动"}失败：` + result.message,
-      "error",
+    const result = await fileManager.copyOrMove(
+      selectedPathForAction,
+      targetPath,
+      type,
     );
+    if (result.success) {
+      hideCopyMoveModal();
+      showToast(`${type === "copy" ? "复制" : "移动"}成功`, "success");
+    } else {
+      showToast(
+        `${type === "copy" ? "复制" : "移动"}失败：` + result.message,
+        "error",
+      );
+    }
+  } catch (error) {
+    console.error("复制/移动失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
 }
 
@@ -1726,14 +2172,15 @@ async function confirmCopyMove() {
  * @param {string} type - 类型
  */
 function showContextMenu(event, path, type) {
-  event.preventDefault();
-  event.stopPropagation();
-  contextMenuTarget = { path, type };
+  try {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenuTarget = { path, type };
 
-  const menu = document.getElementById("contextMenu");
-  const actions =
-    type === "dir"
-      ? `
+    const menu = document.getElementById("contextMenu");
+    const actions =
+      type === "dir"
+        ? `
         <div class="context-menu-item" onclick="enterFolder('${escapeHtml(path)}')">
             <i class="ti ti-folder-open"></i> 打开
         </div>
@@ -1741,7 +2188,7 @@ function showContextMenu(event, path, type) {
             <i class="ti ti-copy"></i> 复制/移动
         </div>
       `
-      : `
+        : `
         <div class="context-menu-item" onclick="previewFile('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
             <i class="ti ti-eye"></i> 预览
         </div>
@@ -1756,7 +2203,7 @@ function showContextMenu(event, path, type) {
         </div>
       `;
 
-  menu.innerHTML = `
+    menu.innerHTML = `
     ${actions}
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" onclick="showRenameModal('${escapeHtml(path)}', '${escapeHtml(path.split("/").pop())}')">
@@ -1771,9 +2218,13 @@ function showContextMenu(event, path, type) {
     </div>
   `;
 
-  menu.style.display = "block";
-  menu.style.left = event.clientX + "px";
-  menu.style.top = event.clientY + "px";
+    menu.style.display = "block";
+    menu.style.left = event.clientX + "px";
+    menu.style.top = event.clientY + "px";
+  } catch (error) {
+    console.error("显示右键菜单失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -1782,23 +2233,32 @@ function showContextMenu(event, path, type) {
  * @param {string} type - 类型
  */
 function showContextMenuForFile(path, type) {
-  const menu = document.getElementById("contextMenu");
-  menu.style.display = "none";
-  contextMenuTarget = { path, type };
+  try {
+    const menu = document.getElementById("contextMenu");
+    menu.style.display = "none";
+    contextMenuTarget = { path, type };
 
-  const rect = event.target.getBoundingClientRect();
-  setTimeout(() => {
-    menu.style.display = "block";
-    menu.style.left = rect.left + "px";
-    menu.style.top = rect.bottom + 8 + "px";
-  }, 0);
+    const rect = event.target.getBoundingClientRect();
+    setTimeout(() => {
+      menu.style.display = "block";
+      menu.style.left = rect.left + "px";
+      menu.style.top = rect.bottom + 8 + "px";
+    }, 0);
+  } catch (error) {
+    console.error("显示右键菜单失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
  * 隐藏右键菜单
  */
 function hideContextMenu() {
-  document.getElementById("contextMenu").style.display = "none";
+  try {
+    document.getElementById("contextMenu").style.display = "none";
+  } catch (error) {
+    console.error("隐藏右键菜单失败:", error);
+  }
 }
 
 /**
@@ -1806,8 +2266,13 @@ function hideContextMenu() {
  * @param {string} path - 路径
  */
 async function copyPath(path) {
-  await fileManager.copyPath(path);
-  hideContextMenu();
+  try {
+    await fileManager.copyPath(path);
+    hideContextMenu();
+  } catch (error) {
+    console.error("复制路径失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -1815,19 +2280,24 @@ async function copyPath(path) {
  * @param {string} path - 路径
  */
 async function copyShareUrl(path) {
-  if (isPublicStorageMode) {
-    // 公开模式使用公开下载端点
-    const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
-    const success = await copyToClipboard(url);
-    if (success) {
-      showToast("分享链接已复制到剪贴板", "success");
+  try {
+    if (isPublicStorageMode) {
+      // 公开模式使用公开下载端点
+      const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
+      const success = await copyToClipboard(url);
+      if (success) {
+        showToast("分享链接已复制到剪贴板", "success");
+      } else {
+        showToast("复制失败", "error");
+      }
     } else {
-      showToast("复制失败", "error");
+      await fileManager.copyShareUrl(path);
     }
-  } else {
-    await fileManager.copyShareUrl(path);
+    hideContextMenu();
+  } catch (error) {
+    console.error("复制分享链接失败:", error);
+    showToast("操作失败：" + error.message, "error");
   }
-  hideContextMenu();
 }
 
 /**
@@ -1835,16 +2305,26 @@ async function copyShareUrl(path) {
  * @param {string} path - 路径
  */
 async function deleteFile(path) {
-  // 使用自定义删除确认弹窗
-  showDeleteConfirmModalWithCallback(path, async () => {
-    const result = await fileManager.remove(path);
-    if (result.success) {
-      showToast("删除成功", "success");
-    } else {
-      showToast("删除失败：" + result.message, "error");
-    }
-    hideContextMenu();
-  });
+  try {
+    // 使用自定义删除确认弹窗
+    showDeleteConfirmModalWithCallback(path, async () => {
+      try {
+        const result = await fileManager.remove(path);
+        if (result.success) {
+          showToast("删除成功", "success");
+        } else {
+          showToast("删除失败：" + result.message, "error");
+        }
+        hideContextMenu();
+      } catch (error) {
+        console.error("删除文件失败:", error);
+        showToast("删除失败：" + error.message, "error");
+      }
+    });
+  } catch (error) {
+    console.error("删除文件失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 /**
@@ -1853,15 +2333,20 @@ async function deleteFile(path) {
  * @param {Function} callback - 确认后的回调函数
  */
 function showDeleteConfirmModalWithCallback(path, callback) {
-  const modal = document.getElementById("deleteConfirmModal");
-  const message = document.getElementById("deleteMessage");
-  const fileName = path.split("/").pop();
-  message.textContent = `确定要删除 "${fileName}" 吗？`;
+  try {
+    const modal = document.getElementById("deleteConfirmModal");
+    const message = document.getElementById("deleteMessage");
+    const fileName = path.split("/").pop();
+    message.textContent = `确定要删除 "${fileName}" 吗？`;
 
-  // 保存回调函数
-  window.deleteCallback = callback;
+    // 保存回调函数
+    window.deleteCallback = callback;
 
-  modal.style.display = "flex";
+    modal.style.display = "flex";
+  } catch (error) {
+    console.error("显示删除确认弹窗失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 // ==================== 其他功能 ====================
@@ -1870,15 +2355,20 @@ function showDeleteConfirmModalWithCallback(path, callback) {
  * 打开管理后台（独立页面）
  */
 function openAdminPanel() {
-  // 先检查认证状态
-  const authToken = localStorage.getItem("rlist_auth_token");
-  if (!authToken) {
-    showToast("请先登录", "error");
-    return;
-  }
+  try {
+    // 先检查认证状态
+    const authToken = localStorage.getItem("rlist_auth_token");
+    if (!authToken) {
+      showToast("请先登录", "error");
+      return;
+    }
 
-  // 使用 location.href 直接跳转，避免被浏览器拦截
-  window.location.href = "/admin.html";
+    // 使用 location.href 直接跳转，避免被浏览器拦截
+    window.location.href = "/admin.html";
+  } catch (error) {
+    console.error("打开管理后台失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
 }
 
 // ==================== 键盘事件 ====================
