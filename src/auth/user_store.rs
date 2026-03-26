@@ -115,25 +115,26 @@ pub struct UserCredentialsStore {
 }
 
 impl UserCredentialsStore {
-    pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
+    pub async fn new<P: AsRef<std::path::Path>>(database_url: P) -> Result<Self, sqlx::Error> {
         // Create parent directory if it doesn't exist
-        if let Some(parent) = std::path::Path::new(database_url).parent() {
+        let path = database_url.as_ref();
+        if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
-            File::create_new(database_url).await.ok();
+            File::create_new(path).await.ok();
         }
-        let pool = SqlitePool::connect(database_url).await?;
+        let pool = SqlitePool::connect(path.to_str().unwrap()).await?;
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS user_credentials (
-                username TEXT PRIMARY KEY NOT NULL,
-                salt BLOB NOT NULL,
-                password_hash TEXT NOT NULL,
-                permissions INTEGER NOT NULL DEFAULT 255,
-                fail_count INTEGER NOT NULL DEFAULT 0,
-                ban_exp DATETIME,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            "#,
+        CREATE TABLE IF NOT EXISTS user_credentials (
+            username TEXT PRIMARY KEY NOT NULL,
+            salt BLOB NOT NULL,
+            password_hash TEXT NOT NULL,
+            permissions INTEGER NOT NULL DEFAULT 255,
+            fail_count INTEGER NOT NULL DEFAULT 0,
+            ban_exp DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
         )
         .execute(&pool)
         .await?;

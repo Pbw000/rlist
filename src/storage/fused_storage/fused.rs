@@ -183,7 +183,6 @@ where
         })
     }
 }
-
 pub struct ConfigMeta<T: Storage> {
     drivers: Vec<DriverMeta<T>>,
 }

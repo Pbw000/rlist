@@ -1,6 +1,5 @@
 #[macro_export]
 macro_rules! impl_storage_enum {
-    // 带单个 extension 类型的版本（支持 driver 和 extension 的笛卡尔积组合）
     (
         $enum_name:ident: $error_type:ty,
         drivers: [
@@ -9,19 +8,13 @@ macro_rules! impl_storage_enum {
         extension: $ext:ty
     ) => {
         paste::paste! {
-            // 生成枚举定义 - 包含普通驱动和 extension 扩展变体
             #[allow(non_camel_case_types)]
             pub enum $enum_name {
-                // 普通驱动变体
                 $($variant($ty),)+
-                // 扩展变体：为每个 driver 生成与 extension 的组合
                 $(
-                    /// 带包装器的存储变体
                     [<$variant $ext>]($ext<$ty>),
                 )+
             }
-
-            // 生成 End2EndCopyMeta 枚举 - extension 包装器与原有类型使用相同的 Meta
             #[allow(non_camel_case_types)]
             #[derive(Debug)]
             pub enum [<$enum_name End2EndCopyMeta>] {

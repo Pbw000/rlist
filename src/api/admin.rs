@@ -4,7 +4,6 @@ use crate::{
     Storage,
     api::{state::AppState, types::*},
     auth::challenge::IntoHashContext,
-    storage::all::AllDriver,
 };
 use axum::{
     Json,
@@ -52,18 +51,16 @@ pub async fn add_storage(
 
     // 保存驱动名称
     let driver_name = req.driver.driver_name().to_string();
-
-    // 直接使用请求中的 driver ConfigMeta
-    let config_meta = req.driver;
+    let is_public = req.public.unwrap_or(false);
 
     // 使用 from_auth_data 创建存储实例
-    let storage = match AllDriver::from_auth_data(config_meta) {
+    let storage = match crate::storage::all::AllDriver::from_auth_data(req.driver) {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(400, format!("初始化存储失败：{}", e)),
     };
 
     // 添加到注册表
-    if req.public.unwrap_or(false) {
+    if is_public {
         state.add_public_storage(prefix, storage).await;
     } else {
         state.add_storage(prefix, storage).await;
@@ -74,6 +71,11 @@ pub async fn add_storage(
         tracing::warn!("构建存储缓存失败：{}", e);
     }
 
+    // 从运行时配置保存到文件
+    if let Err(e) = save_config_from_state(&state).await {
+        tracing::warn!("保存存储配置到文件失败：{}", e);
+    }
+
     ApiResponse::success(AddStorageResponse {
         prefix: format!("/{}", prefix),
         driver: driver_name,
@@ -81,21 +83,51 @@ pub async fn add_storage(
     })
 }
 
+/// 从 AppState 保存配置到文件
+async fn save_config_from_state(
+    state: &AppState,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use crate::Storage;
+
+    let public_registry = state.get_public_registry().await.to_auth_data();
+    let private_registry = state.get_registry().await.to_auth_data();
+
+    let config = crate::utils::config_parser::AppCofiguration {
+        public_registry,
+        private_registry,
+    };
+
+    crate::utils::config_parser::write_cfg(&config).await
+}
+
 pub async fn remove_pub_storage(
     State(state): State<AppState>,
     Path(index): Path<usize>,
 ) -> impl IntoResponse {
     match state.remove_public_storage(index).await {
-        Some(name) => ApiResponse::success(serde_json::json!({"deleted": name})),
+        Some(name) => {
+            // 同步删除配置文件中的配置
+            if let Err(e) = save_config_from_state(&state).await {
+                tracing::warn!("从配置文件移除存储失败：{}", e);
+            }
+            ApiResponse::success(serde_json::json!({"deleted": name}))
+        }
         None => ApiResponse::error(404, "Storage not found".to_string()),
     }
 }
+
 pub async fn remove_private_storage(
     State(state): State<AppState>,
     Path(index): Path<usize>,
 ) -> impl IntoResponse {
     match state.remove_private_storage(index).await {
-        Some(name) => ApiResponse::success(serde_json::json!({"deleted": name})),
+        Some(name) => {
+            // 同步删除配置文件中的配置
+            if let Err(e) = save_config_from_state(&state).await {
+                tracing::warn!("从配置文件移除存储失败：{}", e);
+            }
+            ApiResponse::success(serde_json::json!({"deleted": name}))
+        }
         None => ApiResponse::error(404, "Storage not found".to_string()),
     }
 }

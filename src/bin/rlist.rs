@@ -1,17 +1,19 @@
 use clap::Parser;
-use rlist::PartialStorage;
+use rlist::Storage;
 use rlist::api::{AppState, start_server};
 use rlist::auth::auth::AuthConfig;
 use rlist::auth::user_store::{UserCredentialsStore, UserPermissions};
-use rlist::storage::driver::local::local::LocalStorage;
+use rlist::storage::all::StorageRegistry;
 use rlist::utils::cli::{Cli, PasswdSubCommand, RlistSubcommand};
+use rlist::utils::config_parser::{get_data_base_path, load_config_from_file};
 use rlist::utils::password::generate_random_password;
 use std::sync::Arc;
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt().init();
     let cli = Cli::parse();
-    let credentials_store = UserCredentialsStore::new("data.db").await?;
+    let credentials_store = UserCredentialsStore::new(get_data_base_path()?).await?;
     match cli.command {
         Some(RlistSubcommand::Passwd(command)) => {
             handle_passwd_command(&credentials_store, command).await?;
@@ -26,15 +28,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-/// 处理密码管理命令
 async fn handle_passwd_command(
     credentials_store: &UserCredentialsStore,
     command: PasswdSubCommand,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match command {
         PasswdSubCommand::Rst { user, new_password } => {
-            // 重置用户密码
             if !credentials_store.exists(&user).await {
                 return Err(format!("User '{}' does not exist", user).into());
             }
@@ -51,7 +50,6 @@ async fn handle_passwd_command(
             tracing::info!("Password reset for user: {}", user);
         }
         PasswdSubCommand::Random { user } => {
-            // 为用户生成随机密码
             if !credentials_store.exists(&user).await {
                 return Err(format!("User '{}' does not exist", user).into());
             }
@@ -74,46 +72,23 @@ async fn handle_passwd_command(
     Ok(())
 }
 
-/// 运行服务器
 async fn run_server(
     port: u16,
     credentials_store: UserCredentialsStore,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // 首次运行时创建 admin 账户
     if !credentials_store.exists("admin").await {
-        println!("Admin account not found.\n Would you like to create an admin account? (y/n)");
-        let mut input = String::new();
-        std::io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-        if input.trim().to_lowercase() == "y" {
-            create_admin_account(&credentials_store).await?;
-        } else {
-            return Err("Admin account creation was skipped".into());
-        }
+        create_admin_account(&credentials_store).await?;
     }
-
-    // 创建认证配置
+    let config = load_config_from_file().await?;
     let auth_config = Arc::new(AuthConfig::random(vec![], credentials_store).await);
+    let pub_registry = StorageRegistry::from_auth_data(config.public_registry)?;
+    let pri_registry = StorageRegistry::from_auth_data(config.private_registry)?;
+    let state = AppState::new(auth_config, pri_registry, pub_registry);
 
-    let state = AppState::new(auth_config);
-    let local_storage = LocalStorage::new(r"C:\Users\pang_\Downloads");
-    state.add_storage("/local", local_storage).await;
-    tracing::info!("已添加本地存储：local");
-
-    use rlist::storage::driver::mcloud::McloudStorage;
-
-    let storage = McloudStorage::from_authorization(
-        "cGM6MTM4ODA2MzAzMDk6ZEpjUHBYbEx8MXxSQ1N8MTc3NjY3NTUyMzc3N3xiT1hRRTZ2eUdKSWYuUnVTd3RHdlY1NWo2N2t5Z2NidTNtbnVuUW5sWTRQRDNicm01aWo2VjB6NmcxWm0wQzBDOG5Qdkl6VWhDMjgzc3NrTjdyOFI2eTJYelQxX3pQenJkdE8zbzNQX2s4V2FKUEFnLnNoemY2MHF0VHJRcU9iWUhaVU4wUlI3T1BkNzYxS2pEUS5fTEdfNGhaYUIuWjJ0T05KakRESEIxQTQt",
-    );
-    let mut partial_mcloud = PartialStorage::new(storage.clone(), "/public/hieulerpi");
-    partial_mcloud.read_only(true);
-    state.add_storage("/mcloud", storage).await;
-    state.add_public_storage("/hieulerpi", partial_mcloud).await;
-
-    tracing::info!("已添加移动云盘存储：mcloud");
     state.build_cache("/").await?;
 
-    let addr = format!("localhost:{}", port);
+    let addr = format!("0.0.0.0:{}", port);
     tracing::info!("Starting server on {}", addr);
     start_server(state, &addr).await?;
 
@@ -122,7 +97,7 @@ async fn run_server(
 
 async fn create_admin_account(
     credentials_store: &UserCredentialsStore,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let random_password = generate_random_password();
     if let Err(e) = credentials_store
         .register("admin", &random_password, UserPermissions::admin())

@@ -36,19 +36,22 @@ pub struct AppStateInner {
 
 impl AppState {
     /// 创建新的应用状态
-    pub fn new(auth_config: Arc<AuthConfig>) -> Self {
+    pub fn new(
+        auth_config: Arc<AuthConfig>,
+        private_registry: StorageRegistry,
+        public_registry: StorageRegistry,
+    ) -> Self {
         let challenge = ChallengeTask::new();
         challenge.start_rotate(30);
         Self {
             inner: Arc::new(AppStateInner {
-                private_registry: RwLock::new(StorageRegistry::new()),
+                private_registry: RwLock::new(private_registry),
                 auth_config,
-                public_registry: RwLock::new(StorageRegistry::new()),
+                public_registry: RwLock::new(public_registry),
                 challenge,
             }),
         }
     }
-
     pub async fn list_public_storages(&self) -> Vec<DriverInfo> {
         self.inner
             .public_registry
