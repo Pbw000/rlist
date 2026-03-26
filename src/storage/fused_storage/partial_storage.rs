@@ -73,6 +73,13 @@ impl<T: Storage> Storage for PartialStorage<T> {
     type End2EndCopyMeta = T::End2EndCopyMeta;
     type End2EndMoveMeta = T::End2EndMoveMeta;
     type ConfigMeta = ConfigMeta<T>;
+    fn to_auth_data(&self) -> Self::ConfigMeta {
+        ConfigMeta {
+            prefix_path: self.prefix_path.clone(),
+            read_only: self.read_only,
+            storage_meta: self.inner.to_auth_data(),
+        }
+    }
     fn hash(&self) -> u64 {
         self.inner.hash()
     }

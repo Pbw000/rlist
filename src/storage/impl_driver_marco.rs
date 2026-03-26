@@ -449,7 +449,21 @@ macro_rules! impl_storage_enum {
                         )+
                     }
                 }
-
+                fn to_auth_data(&self) -> Self::ConfigMeta
+                where
+                    Self: Sized,
+                {
+                    match self {
+                        $($enum_name::$variant(driver) => {
+                            [<$enum_name ConfigMeta>]::$variant(<$ty as $crate::Storage>::to_auth_data(driver))
+                        },)+
+                        $(
+                            $enum_name::[<$variant $ext>](driver) => {
+                                [<$enum_name ConfigMeta>]::[<$variant $ext>](<$ext<$ty> as $crate::Storage>::to_auth_data(driver))
+                            }
+                        )+
+                    }
+                }
                 fn auth_template() -> Self::ConfigMeta
                 where
                     Self: Sized,
@@ -724,6 +738,17 @@ macro_rules! impl_storage_enum {
                 match data {
                     $([<$enum_name ConfigMeta>]::$variant(config) => {
                         <$ty>::from_auth_data(config).map_err(|e| Into::<$error_type>::into(e)).map($enum_name::$variant)
+                    },)+
+                }
+            }
+
+            fn to_auth_data(&self) -> Self::ConfigMeta
+            where
+                Self: Sized,
+            {
+                match self {
+                    $($enum_name::$variant(driver) => {
+                        [<$enum_name ConfigMeta>]::$variant(<$ty as $crate::Storage>::to_auth_data(driver))
                     },)+
                 }
             }

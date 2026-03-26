@@ -215,10 +215,7 @@ pub trait Storage: Send + Sync {
         Self: Sized,
     {
         async move {
-            // 获取源文件元数据
             let source_meta = self.get_meta(source_path).await?;
-
-            // 获取源文件大小
             let source_size = match &source_meta {
                 Meta::File { size, .. } => *size,
                 Meta::Directory { .. } => {
@@ -226,7 +223,6 @@ pub trait Storage: Send + Sync {
                 }
             };
 
-            // 下载源文件内容（流式）
             let content = self.download_file(source_path).await?;
 
             // 获取 hash
@@ -263,8 +259,11 @@ pub trait Storage: Send + Sync {
     where
         Self: Sized;
 
-    /// 认证模板（无需实例）
     fn auth_template() -> Self::ConfigMeta
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        Self::ConfigMeta::default()
+    }
+    fn to_auth_data(&self) -> Self::ConfigMeta;
 }

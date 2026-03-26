@@ -2019,7 +2019,7 @@ async function loadPathSelector(path) {
         `;
       }
 
-      // 构建目录列表 HTML
+      // 构建目录列表 HTML（添加选择按钮）
       let dirsHtml = "";
       if (dirs.length === 0) {
         dirsHtml = `
@@ -2033,10 +2033,13 @@ async function loadPathSelector(path) {
           .map(
             (dir) => `
               <div class="file-item" data-action="dir" data-path="${escapeHtml(dir.path)}">
-                  <div class="file-main">
+                  <div class="file-main" style="flex: 1; cursor: pointer;">
                       <div class="file-icon"><i class="ti ti-folder"></i></div>
                       <div class="file-name">${escapeHtml(dir.name)}</div>
                   </div>
+                  <button class="action-btn-sm" onclick="event.stopPropagation(); selectPath('${escapeHtml(dir.path)}')" style="margin-right: 8px;" title="选择此文件夹">
+                      <i class="ti ti-check"></i> 选择
+                  </button>
               </div>
             `,
           )
@@ -2077,8 +2080,12 @@ async function loadPathSelector(path) {
             console.log("返回上级目录:", itemPath);
             loadPathSelector(itemPath);
           } else if (itemAction === "dir" && itemPath) {
-            // 进入子目录
+            // 进入子目录 - 同时更新目标路径输入框（添加末尾 / 以便后续自动添加文件名）
             console.log("进入子目录:", itemPath);
+            const normalizedPath = itemPath.endsWith("/")
+              ? itemPath
+              : itemPath + "/";
+            document.getElementById("targetPathInput").value = normalizedPath;
             loadPathSelector(itemPath);
           } else if (itemAction === "current" && itemPath) {
             // 选择当前目录
@@ -2106,7 +2113,9 @@ async function loadPathSelector(path) {
  */
 function selectPath(path) {
   try {
-    document.getElementById("targetPathInput").value = path;
+    // 为目录路径添加末尾的 /，以便后续自动添加文件名
+    const normalizedPath = path.endsWith("/") ? path : path + "/";
+    document.getElementById("targetPathInput").value = normalizedPath;
     hidePathSelector();
   } catch (error) {
     console.error("选择路径失败:", error);
@@ -2119,11 +2128,18 @@ function selectPath(path) {
  */
 function confirmPathSelection() {
   try {
-    const path = document.getElementById("targetPathInput").value;
+    // 使用输入框中的当前值（已经在点击文件夹时更新）
+    let path = document.getElementById("targetPathInput").value;
     if (path) {
-      document.getElementById("targetPathInput").value = path;
+      // 为目录路径添加末尾的 /，以便后续自动添加文件名
+      if (!path.endsWith("/")) {
+        path = path + "/";
+        document.getElementById("targetPathInput").value = path;
+      }
+      hidePathSelector();
+    } else {
+      showToast("请先选择路径", "error");
     }
-    hidePathSelector();
   } catch (error) {
     console.error("确认路径选择失败:", error);
     showToast("操作失败：" + error.message, "error");
@@ -2135,12 +2151,20 @@ function confirmPathSelection() {
  */
 async function confirmCopyMove() {
   try {
-    const targetPath = document.getElementById("targetPathInput").value.trim();
+    let targetPath = document.getElementById("targetPathInput").value.trim();
     const type = document.getElementById("copyMoveType").value;
 
     if (!targetPath) {
       showToast("请输入目标路径", "error");
       return;
+    }
+
+    // 如果目标路径是目录（以/结尾或是根目录），则自动添加源文件/文件夹名
+    const srcName =
+      selectedPathForAction.split("/").pop() || selectedPathForAction;
+    if (targetPath === "/" || targetPath.endsWith("/")) {
+      targetPath =
+        targetPath === "/" ? "/" + srcName : targetPath + "/" + srcName;
     }
 
     const result = await fileManager.copyOrMove(

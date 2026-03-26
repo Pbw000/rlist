@@ -547,8 +547,30 @@ where
         }
     }
 
-    fn from_auth_data(_data: Self::ConfigMeta) -> Result<Self, Self::Error> {
-        Ok(Self::new())
+    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error> {
+        let drivers = data
+            .drivers
+            .into_iter()
+            .map(|meta| {
+                let driver = T::from_auth_data(meta.config).map_err(|e| e.into())?;
+                Ok::<_, Self::Error>(DriverWithPrefix {
+                    prefix: meta.path,
+                    driver: Arc::new(driver),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self::from_drivers(drivers))
+    }
+    fn to_auth_data(&self) -> Self::ConfigMeta {
+        let drivers = self
+            .drivers
+            .iter()
+            .map(|driver| DriverMeta {
+                path: driver.prefix.clone(),
+                config: driver.driver.to_auth_data(),
+            })
+            .collect();
+        ConfigMeta { drivers }
     }
 
     fn auth_template() -> Self::ConfigMeta {

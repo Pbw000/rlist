@@ -83,7 +83,11 @@ impl Storage for McloudStorage {
     type Error = McloudError;
     type End2EndCopyMeta = String; // 使用 file_id 作为复制元数据
     type End2EndMoveMeta = String; // 使用 file_id 作为移动元数据
-
+    fn to_auth_data(&self) -> Self::ConfigMeta {
+        Self::ConfigMeta {
+            token: self.config.authorization.clone(),
+        }
+    }
     fn hash(&self) -> u64 {
         use std::hash::Hasher;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();

@@ -325,32 +325,31 @@ impl Storage for LocalStorage {
         async move { self.get_meta(path).await }
     }
 
-    fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+    async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
         &self,
         path: &str,
         mut content: R,
         _param: crate::storage::model::UploadInfoParams,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
-        async move {
-            let normalized = self.normalize_path(path)?;
+    ) -> Result<FileMeta, Self::Error> {
+        let normalized = self.normalize_path(path)?;
+        println!("Uploading file to path: {:?}", normalized);
 
-            if let Some(parent) = normalized.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-            }
-
-            // 使用 tokio 异步写入文件
-            let mut file = tokio::fs::File::create(&normalized)
-                .await
+        if let Some(parent) = normalized.parent() {
+            std::fs::create_dir_all(parent)
                 .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-
-            // 复制内容到文件
-            tokio::io::copy(&mut content, &mut file)
-                .await
-                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-
-            self.meta_from_path(&normalized)
         }
+        let mut file = tokio::fs::File::create(&normalized)
+            .await
+            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+
+        println!("File created, starting content copy...");
+        // 复制内容到文件
+        let bytes_copied = tokio::io::copy(&mut content, &mut file)
+            .await
+            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+        println!("Copied {} bytes to file", bytes_copied);
+
+        self.meta_from_path(&normalized)
     }
 
     fn get_upload_info(
@@ -386,6 +385,11 @@ impl Storage for LocalStorage {
     {
         Self::ConfigMeta {
             root_dir: "/path/to/you/dir".into(),
+        }
+    }
+    fn to_auth_data(&self) -> Self::ConfigMeta {
+        Self::ConfigMeta {
+            root_dir: self.root.to_string_lossy().into(),
         }
     }
 }
