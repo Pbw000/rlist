@@ -113,7 +113,7 @@ async fn run_server(
     tracing::info!("已添加移动云盘存储：mcloud");
     state.build_cache("/").await?;
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("localhost:{}", port);
     tracing::info!("Starting server on {}", addr);
     start_server(state, &addr).await?;
 

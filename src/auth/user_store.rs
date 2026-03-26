@@ -1,12 +1,8 @@
-//! 用户数据存储模块
-//! 使用 SQLite 数据库持久化存储用户名、salt、密码哈希和权限
-//! 用户 ID 每次启动时随机生成，存储在内存中
-
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rand::{Rng, RngExt};
+use ring::digest::{Context, SHA512};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha512};
 use sqlx::SqlitePool;
 use std::time::Duration;
 use tokio::fs::File;
@@ -505,11 +501,11 @@ impl UserCredentialsStore {
 }
 
 fn hash_password_sha512(password: &str, username: &str, salt: &[u8]) -> String {
-    let mut hasher = Sha512::new();
+    let mut hasher = Context::new(&SHA512);
     hasher.update(salt);
-    hasher.update("|");
-    hasher.update(username);
-    hasher.update("|");
+    hasher.update(&['|' as u8]);
+    hasher.update(&username.as_bytes());
+    hasher.update(&['|' as u8]);
     hasher.update(password.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finish())
 }
