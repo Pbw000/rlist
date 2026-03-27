@@ -51,7 +51,7 @@ impl FileList {
 /// 文件内容读取器 trait
 pub trait FileContent: AsyncRead + AsyncSeek + Send + Sync + Unpin {
     fn size(&self) -> Option<u64>;
-    fn hash(&self) -> &str;
+    fn hash(&self) -> Option<String>;
 }
 
 /// 上传模式
@@ -72,7 +72,7 @@ pub struct UploadInfoParams {
     /// 文件大小
     pub size: u64,
     ///SHA-256
-    pub hash: String,
+    pub hash: Option<String>,
 }
 
 /// 上传信息（用于 Direct 模式）
@@ -222,7 +222,7 @@ pub trait Storage: Send + Sync {
             let content = self.download_file(source_path).await?;
 
             // 获取 hash
-            let hash = content.hash().to_string();
+            let hash = content.hash();
 
             // 构建上传参数
             let upload_param = UploadInfoParams {

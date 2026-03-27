@@ -11,6 +11,7 @@ use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
 use crate::storage::radix_tree::RadixTree;
 use crate::storage::url_reader::UrlReader;
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
+use ring::digest::{Context, SHA256};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -219,7 +220,9 @@ impl Storage for McloudStorage {
             let meta = self.get_download_meta_by_path(&path).await?;
             let reader = UrlReader::builder(&meta.download_url)
                 .size(meta.size)
-                .hash(&meta.hash)
+                .hash(meta.hash)
+                .header("Origin", "https://yun.139.com")
+                .header("Referer", "https://yun.139.com/")
                 .build();
             let reader: Box<dyn FileContent> = Box::new(reader);
             Ok(reader)
@@ -383,8 +386,14 @@ impl Storage for McloudStorage {
 
         // dbg!(&param);
         // 1. 创建文件记录
+        let hash = param.hash.unwrap_or_else(|| {
+            let mut hasher = Context::new(&SHA256);
+            let bytes: [u8; 12] = rand::random();
+            hasher.update(&bytes);
+            hex::encode(hasher.finish())
+        });
         let create_result = self
-            .create_upload_record(&parent_file_id, file_name, param.size, &param.hash)
+            .create_upload_record(&parent_file_id, file_name, param.size, &hash)
             .await?;
 
         if !create_result.upload_url.is_empty() {
@@ -394,7 +403,7 @@ impl Storage for McloudStorage {
                 path,
                 &create_result.upload_id,
                 &create_result.file_id,
-                &param.hash,
+                &hash,
             )
             .await?
             .ok_or_else(|| McloudError::ApiError("complete upload returned None".to_string()))?;
@@ -431,9 +440,14 @@ impl Storage for McloudStorage {
                 "/".to_string()
             };
 
-            // 1. 创建文件记录，获取上传 URL
+            let hash = params.hash.unwrap_or_else(|| {
+                let mut hasher = Context::new(&SHA256);
+                let bytes: [u8; 12] = rand::random();
+                hasher.update(&bytes);
+                hex::encode(hasher.finish())
+            });
             let create_result = self
-                .create_upload_record(&parent_file_id, file_name, params.size, &params.hash)
+                .create_upload_record(&parent_file_id, file_name, params.size, &hash)
                 .await?;
 
             // 检查是否是秒传
@@ -750,7 +764,7 @@ impl McloudStorage {
         Ok(DownloadableMeta {
             download_url: download_meta.url,
             size: download_meta.size,
-            hash: download_meta.contentHash,
+            hash: Some(download_meta.contentHash),
         })
     }
 

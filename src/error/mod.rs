@@ -30,6 +30,9 @@ pub enum RlistError {
     /// IO 错误
     #[error("IO 错误：{0}")]
     Io(#[from] std::io::Error),
+
+    #[error("元数据不匹配")]
+    MetaMissMatch,
 }
 impl From<String> for RlistError {
     fn from(msg: String) -> Self {

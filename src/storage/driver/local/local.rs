@@ -111,8 +111,8 @@ impl FileContent for LocalFileReader {
         self.size
     }
 
-    fn hash(&self) -> &str {
-        &self.hash
+    fn hash(&self) -> Option<String> {
+        Some(self.hash.clone())
     }
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -212,7 +212,7 @@ pub struct FileResponse {
     pub name: String,
     pub url: String,
     pub size: u64,
-    pub hash: String,
+    pub hash: Option<String>,
 }
 
 /// 存储信息响应

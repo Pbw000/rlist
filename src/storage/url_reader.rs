@@ -229,8 +229,8 @@ impl FileContent for UrlReader {
         self.size
     }
 
-    fn hash(&self) -> &str {
-        self.hash.as_deref().unwrap_or("")
+    fn hash(&self) -> Option<String> {
+        self.hash.clone()
     }
 }
 
@@ -281,8 +281,10 @@ impl UrlReaderBuilder {
         self
     }
 
-    pub fn hash(mut self, hash: impl Into<String>) -> Self {
-        self.hash = Some(hash.into());
+    pub fn hash(mut self, hash: Option<impl Into<String>>) -> Self {
+        if let Some(hash) = hash {
+            self.hash = Some(hash.into());
+        }
         self
     }
 

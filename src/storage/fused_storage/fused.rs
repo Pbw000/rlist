@@ -108,14 +108,12 @@ impl<T: Storage + 'static> FusedStorage<T> {
         let meta = self.gen_copy_meta(src_path).await?;
         match self.copy_end_to_end(meta, dest_path).await {
             Ok(_) => Ok(()),
-            Err(e) => {
-                tracing::info!(
-                    "End to end copy is not supported({})! Fallback to relay mode.",
-                    e
-                );
+            Err(RlistError::MetaMissMatch) => {
+                tracing::info!("End to end copy is not supported! Fallback to relay mode.",);
                 self.copy_relay(src_path, dest_path).await?;
                 Ok(())
             }
+            Err(e) => Err(e),
         }
     }
 
@@ -127,14 +125,12 @@ impl<T: Storage + 'static> FusedStorage<T> {
         let meta = self.gen_move_meta(src_path).await?;
         match self.move_end_to_end(meta, dest_path).await {
             Ok(_) => Ok(()),
-            Err(e) => {
-                tracing::info!(
-                    "End to end move is not supported({})! Fallback to relay mode.",
-                    e
-                );
+            Err(RlistError::MetaMissMatch) => {
+                tracing::info!("End to end move is not supported! Fallback to relay mode.");
                 self.move_file(src_path, dest_path).await?;
                 Ok(())
             }
+            Err(e) => Err(e),
         }
     }
 }

@@ -287,9 +287,7 @@ macro_rules! impl_storage_enum {
                     match self {
                         $($enum_name::$variant(driver) => {
                             let [<$enum_name End2EndCopyMeta>]::$variant(meta) = source_meta else {
-                                return Err($crate::error::RlistError::Storage(
-                                    $crate::error::StorageError::InvalidConfig("copy_end_to_end: driver and meta mismatch".to_string()),
-                                ).into());
+                                return Err($crate::error::RlistError::MetaMissMatch);
                             };
                             <$ty as $crate::Storage>::copy_end_to_end(driver, meta, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
@@ -297,9 +295,7 @@ macro_rules! impl_storage_enum {
                             $enum_name::[<$variant $ext>](driver) => {
                                 // extension 包装器使用与原始驱动相同的 meta 类型
                                 let [<$enum_name End2EndCopyMeta>]::$variant(meta) = source_meta else {
-                                    return Err($crate::error::RlistError::Storage(
-                                        $crate::error::StorageError::InvalidConfig("copy_end_to_end: driver and meta mismatch".to_string()),
-                                    ).into());
+                                    return Err($crate::error::RlistError::MetaMissMatch);
                                 };
                                 <$ext<$ty> as $crate::Storage>::copy_end_to_end(driver, meta, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
@@ -329,9 +325,7 @@ macro_rules! impl_storage_enum {
                     match self {
                         $($enum_name::$variant(driver) => {
                             let [<$enum_name End2EndMoveMeta>]::$variant(meta) = source_meta else {
-                                return Err($crate::error::RlistError::Storage(
-                                    $crate::error::StorageError::InvalidConfig("move_end_to_end: driver and meta mismatch".to_string()),
-                                ).into());
+                                return Err($crate::error::RlistError::MetaMissMatch);
                             };
                             <$ty as $crate::Storage>::move_end_to_end(driver, meta, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                         },)+
@@ -339,9 +333,7 @@ macro_rules! impl_storage_enum {
                             $enum_name::[<$variant $ext>](driver) => {
                                 // extension 包装器使用与原始驱动相同的 meta 类型
                                 let [<$enum_name End2EndMoveMeta>]::$variant(meta) = source_meta else {
-                                    return Err($crate::error::RlistError::Storage(
-                                        $crate::error::StorageError::InvalidConfig("move_end_to_end: driver and meta mismatch".to_string()),
-                                    ).into());
+                                    return Err($crate::error::RlistError::MetaMissMatch);
                                 };
                                 <$ext<$ty> as $crate::Storage>::move_end_to_end(driver, meta, dest_path).await.map_err(|e| Into::<$error_type>::into(e))
                             },
@@ -651,9 +643,7 @@ macro_rules! impl_storage_enum {
                 match self {
                     $($enum_name::$variant(driver) => {
                         let [<$enum_name End2EndCopyMeta>]::$variant(meta) = source_meta else {
-                            return Err($crate::error::RlistError::Storage(
-                                $crate::error::StorageError::InvalidConfig("copy_end_to_end: driver and meta mismatch".to_string()),
-                            ).into());
+                            return Err($crate::error::RlistError::MetaMissMatch);
                         };
                         <$ty as $crate::Storage>::copy_end_to_end(driver, meta, dest_path)
                             .await
@@ -677,9 +667,7 @@ macro_rules! impl_storage_enum {
                 match self {
                     $($enum_name::$variant(driver) => {
                         let [<$enum_name End2EndMoveMeta>]::$variant(meta) = source_meta else {
-                            return Err($crate::error::RlistError::Storage(
-                                $crate::error::StorageError::InvalidConfig("move_end_to_end: driver and meta mismatch".to_string()),
-                            ).into());
+                            return Err($crate::error::RlistError::MetaMissMatch);
                         };
                         <$ty as $crate::Storage>::move_end_to_end(driver, meta, dest_path)
                             .await

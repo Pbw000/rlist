@@ -86,5 +86,5 @@ impl Meta {
 pub struct DownloadableMeta {
     pub download_url: String,
     pub size: u64,
-    pub hash: String,
+    pub hash: Option<String>,
 }

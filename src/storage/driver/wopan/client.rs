@@ -16,6 +16,8 @@ use crate::storage::model::{
 use crate::storage::radix_tree::RadixTree;
 use crate::storage::url_reader::UrlReader;
 use reqwest::{Client, RequestBuilder, StatusCode};
+use ring::digest::Context;
+use ring::digest::SHA256;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -281,7 +283,7 @@ impl WopanStorage {
         // dbg!(&api_response);
         let encrypted_data = api_response.into_result()?;
         let decrypted_data = self.decrypt_body(&encrypted_data)?;
-        tracing::debug!("Decrypted:{}", decrypted_data);
+        dbg!(&decrypted_data);
 
         serde_json::from_str(&decrypted_data)
             .map_err(|e| WopanError::ParseError(format!("解析响应数据失败：{}", e)))
@@ -439,13 +441,21 @@ impl Storage for WopanStorage {
 
     async fn get_download_meta_by_path(&self, path: &str) -> Result<DownloadableMeta, WopanError> {
         let file = self.get_file_meta_by_path(path).await?;
-        self.get_download_url(&file.fid).await
+        let url = self.get_download_url(&file.fid).await?;
+        Ok(DownloadableMeta {
+            download_url: url,
+            size: file.size.unwrap_or(0),
+            hash: None,
+        })
     }
 
     async fn download_file(&self, path: &str) -> Result<Box<dyn FileContent>, WopanError> {
         let meta = self.get_download_meta_by_path(path).await?;
+        dbg!(&meta);
         // wopan 下载链接不需要额外认证头，直接返回 URL
         let reader = UrlReader::builder(&meta.download_url)
+            .header("Origin", "https://pan.wo.cn")
+            .header("Referer", "https://pan.wo.cn")
             .size(meta.size)
             .hash(&meta.hash)
             .build();
@@ -550,9 +560,14 @@ impl Storage for WopanStorage {
         } else {
             "root".to_string()
         };
-
+        let hash = param.hash.unwrap_or_else(|| {
+            let mut hasher = Context::new(&SHA256);
+            let bytes: [u8; 12] = rand::random();
+            hasher.update(&bytes);
+            hex::encode(hasher.finish())
+        });
         let create_result = self
-            .create_upload_record(&parent_file_id, file_name, param.size, &param.hash)
+            .create_upload_record(&parent_file_id, file_name, param.size, &hash)
             .await?;
         if !create_result.upload_url.is_empty() {
             self.upload_file_content(&create_result.upload_url, content, param.size)
@@ -583,9 +598,14 @@ impl Storage for WopanStorage {
         } else {
             "root".to_string()
         };
-
+        let hash = params.hash.unwrap_or_else(|| {
+            let mut hasher = Context::new(&SHA256);
+            let bytes: [u8; 12] = rand::random();
+            hasher.update(&bytes);
+            hex::encode(hasher.finish())
+        });
         let create_result = self
-            .create_upload_record(&parent_file_id, file_name, params.size, &params.hash)
+            .create_upload_record(&parent_file_id, file_name, params.size, &hash)
             .await?;
 
         if create_result.upload_url.is_empty() {
@@ -707,7 +727,7 @@ impl WopanStorage {
             .ok_or_else(|| WopanError::NotFound("文件不存在".into()))
     }
 
-    async fn get_download_url(&self, fid: &str) -> Result<DownloadableMeta, WopanError> {
+    async fn get_download_url(&self, fid: &str) -> Result<String, WopanError> {
         let body = GetDownloadUrlV2Body {
             type_: "1".into(),
             fid_list: vec![fid.to_owned()],
@@ -715,15 +735,12 @@ impl WopanStorage {
         };
         let response: WopanDownloadUrlData =
             self.send_request(KEY_GET_DOWNLOAD_URL_V2, body).await?;
-        let item = response
-            .list
-            .first()
-            .ok_or_else(|| WopanError::DownloadError("No download URL in response".into()))?;
-        Ok(DownloadableMeta {
-            download_url: item.download_url.clone(),
-            size: 0,
-            hash: String::new(),
-        })
+        for url in response.list {
+            return Ok(url.download_url);
+        }
+        Err(WopanError::DownloadError(
+            "No download URL in response".into(),
+        ))
     }
 
     async fn create_folder_internal(
