@@ -110,7 +110,7 @@ impl<T: Storage + 'static> FusedStorage<T> {
             Ok(_) => Ok(()),
             Err(e) => {
                 tracing::info!(
-                    "End to end copy is not supported({})! Failback to relay mode.",
+                    "End to end copy is not supported({})! Fallback to relay mode.",
                     e
                 );
                 self.copy_relay(src_path, dest_path).await?;
@@ -129,7 +129,7 @@ impl<T: Storage + 'static> FusedStorage<T> {
             Ok(_) => Ok(()),
             Err(e) => {
                 tracing::info!(
-                    "End to end move is not supported({})! Failback to relay mode.",
+                    "End to end move is not supported({})! Fallback to relay mode.",
                     e
                 );
                 self.move_file(src_path, dest_path).await?;
