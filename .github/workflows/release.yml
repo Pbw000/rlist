@@ -89,31 +89,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download artifacts
+      - name: Download Linux GNU artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: rlist-*
-          merge-multiple: true
-          path: artifacts
+          name: rlist-x86_64-unknown-linux-gnu
+          path: artifacts/linux-gnu
+
+      - name: Download Linux musl artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rlist-x86_64-unknown-linux-musl
+          path: artifacts/linux-musl
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rlist-x86_64-pc-windows-msvc
+          path: artifacts/windows
 
       - name: List downloaded artifacts
         run: |
-          ls -la artifacts
-          file artifacts/*
+          ls -laR artifacts
 
       - name: Create release archives
         run: |
           cd artifacts
-          for file in *; do
-            echo "Processing: $file"
-            if [[ $file == *.exe ]]; then
-              zip -r rlist-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip $file
-            elif [[ $file == *musl* ]]; then
-              tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz $file
-            else
-              tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz $file
-            fi
-          done
+          tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz -C linux-gnu rlist
+          tar -czvf rlist-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz -C linux-musl rlist
+          zip -r rlist-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip -j windows/rlist.exe
 
       - name: List archives
         run: ls -la artifacts
