@@ -775,17 +775,18 @@ async function previewFile(path, name) {
   ];
   const docExts = ["pdf"];
 
-  // 获取公开下载 URL
-  const url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
+  // 获取预览 URL - 使用中继模式直接流式传输
+  const url = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
+  const fullUrl = `${window.location.origin}${url}`;
   previewContent.innerHTML =
     '<div class="preview-placeholder"><i class="ti ti-loader"></i><p>加载中...</p></div>';
 
   if (imageExts.includes(ext)) {
     previewFileType = "image";
-    previewContent.innerHTML = `<img src="${url}" alt="${escapeHtml(name)}" onload="onImageLoad()" onerror="onPreviewError()">`;
+    previewContent.innerHTML = `<img src="${fullUrl}" alt="${escapeHtml(name)}" onload="onImageLoad()" onerror="onPreviewError()">`;
   } else if (videoExts.includes(ext)) {
     previewFileType = "video";
-    previewContent.innerHTML = `<video controls src="${url}"></video>`;
+    previewContent.innerHTML = `<video controls src="${fullUrl}"></video>`;
   } else if (audioExts.includes(ext)) {
     previewFileType = "audio";
     previewContent.innerHTML = `<audio controls src="${url}"></audio>`;
@@ -1088,9 +1089,33 @@ function downloadFromPreview() {
  * @param {string} path - 路径
  */
 async function downloadFile(path) {
-  const url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
-  window.open(url, "_blank");
-  showToast("下载已开始", "success");
+  try {
+    // 先尝试获取直链
+    const response = await fetch(
+      `${API_BASE}/fs/get?path=${encodeURIComponent(path)}`,
+    );
+    const result = await response.json();
+
+    let downloadUrl;
+    if (result.code === 200 && result.data && result.data.url) {
+      // 使用存储驱动提供的直链
+      downloadUrl = result.data.url;
+    } else {
+      // Fallback: 使用中继模式下载
+      downloadUrl = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
+    }
+
+    const url = `${window.location.origin}${downloadUrl}`;
+    window.open(url, "_blank");
+    showToast("下载已开始", "success");
+  } catch (error) {
+    console.error("下载失败:", error);
+    // Fallback: 使用中继模式下载
+    const downloadUrl = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
+    const url = `${window.location.origin}${downloadUrl}`;
+    window.open(url, "_blank");
+    showToast("下载已开始", "success");
+  }
 }
 
 /**
@@ -1101,17 +1126,21 @@ async function copyShareUrl(path) {
   try {
     // 先获取解析后的直链
     const response = await fetch(
-      `${API_BASE}/download?path=${encodeURIComponent(path)}`,
+      `${API_BASE}/fs/get?path=${encodeURIComponent(path)}`,
     );
     const result = await response.json();
 
     let url;
-    if (result.code === 200 && result.data && result.data.download_url) {
+    if (result.code === 200 && result.data && result.data.url) {
       // 使用解析后的直链
-      url = result.data.download_url;
+      url = result.data.url;
+      // 如果是相对路径，转换为绝对路径
+      if (!url.startsWith("http")) {
+        url = `${window.location.origin}${url}`;
+      }
     } else {
-      // 降级方案：使用公开访问链接
-      url = `${window.location.origin}${API_BASE}/download?path=${encodeURIComponent(path)}`;
+      // 降级方案：使用中继模式
+      url = `${window.location.origin}${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
     }
 
     const success = await copyToClipboard(url);
