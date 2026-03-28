@@ -335,64 +335,9 @@
 }
 
 /* ============ 响应式调整 ============ */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
     .container {
-        padding: 12px;
-    }
-
-    .public-navbar {
-        padding: 14px 16px;
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .navbar-left {
-        width: 100%;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .navbar-right {
-        width: 100%;
-        justify-content: space-between;
-    }
-
-    .logo-text {
-        display: none;
-    }
-
-    /* 移动端隐藏历史导航按钮 */
-    .nav-history {
-        display: none;
-    }
-
-    /* 移动端面包屑缩小 */
-    .breadcrumb-container {
-        max-width: 200px;
-        margin-left: 8px;
-    }
-
-    .breadcrumb {
-        padding: 4px 8px;
-        font-size: 13px;
-    }
-
-    /* 移动端隐藏编辑路径按钮 */
-    .edit-path-btn {
-        display: none;
-    }
-
-    .search-box {
-        min-width: 140px;
-        flex: 1;
-    }
-
-    .toolbar {
-        padding: 12px 16px;
-    }
-
-    .toolbar .btn span {
-        display: none;
+        padding: 16px;
     }
 
     .file-list-header {
@@ -400,8 +345,7 @@
     }
 
     .file-item {
-        grid-template-columns: 50px 1fr 80px;
-        padding: 12px 16px;
+        grid-template-columns: 1fr 100px;
     }
 
     .file-size,
@@ -413,23 +357,279 @@
         opacity: 1;
     }
 
+    /* 存储列表 */
+    .storage-item {
+        padding: 10px 12px;
+    }
+
+    .storage-item-name {
+        font-size: 13px;
+    }
+
+    .storage-item-path {
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 12px;
+    }
+
+    .public-navbar {
+        padding: 14px;
+        flex-direction: column;
+        gap: 12px;
+        border-radius: var(--radius-lg);
+    }
+
+    .navbar-left {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: space-between;
+    }
+
+    .navbar-right {
+        width: 100%;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    .logo-text {
+        display: none;
+    }
+
+    .logo-icon-small {
+        width: 38px;
+        height: 38px;
+    }
+
+    .logo-icon-small i {
+        font-size: 20px;
+    }
+
+    /* 移动端隐藏历史导航按钮 */
+    .nav-history {
+        display: none;
+    }
+
+    /* 移动端面包屑缩小 */
+    .breadcrumb-container {
+        max-width: 180px;
+        margin-left: 8px;
+    }
+
+    .breadcrumb {
+        padding: 4px 8px;
+        font-size: 12px;
+    }
+
+    .breadcrumb-item i {
+        font-size: 14px;
+    }
+
+    /* 移动端隐藏编辑路径按钮 */
+    .edit-path-btn {
+        display: none;
+    }
+
+    /* 存储徽章 */
+    .storage-badge {
+        order: -1;
+        margin-left: auto;
+    }
+
+    .storage-badge span {
+        display: none;
+    }
+
+    .storage-badge i {
+        font-size: 18px;
+    }
+
+    /* 搜索框 */
+    .search-box {
+        min-width: 140px;
+        flex: 1;
+        padding: 8px 10px;
+    }
+
+    .search-box input {
+        font-size: 13px;
+    }
+
+    /* 工具栏 */
+    .toolbar {
+        padding: 12px 14px;
+        flex-direction: column;
+        gap: 10px;
+        border-radius: var(--radius-lg);
+    }
+
+    .toolbar-left,
+    .toolbar-right {
+        width: 100%;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .toolbar .btn {
+        padding: 8px 12px;
+    }
+
+    .toolbar .btn span {
+        display: none;
+    }
+
+    .view-toggle {
+        gap: 4px;
+    }
+
+    .view-toggle button {
+        padding: 8px 10px;
+    }
+
+    /* 文件列表 */
+    .file-list-container {
+        max-height: calc(100vh - 200px);
+    }
+
+    .file-item {
+        grid-template-columns: 1fr 90px;
+        padding: 12px;
+    }
+
+    .file-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 22px;
+    }
+
+    .file-name {
+        font-size: 13px;
+    }
+
+    .action-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 15px;
+    }
+
+    /* 网格视图 */
+    .file-list.grid-view {
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: 10px;
+        padding: 12px;
+    }
+
+    .file-list.grid-view .file-item {
+        padding: 14px 10px;
+    }
+
+    .file-list.grid-view .file-icon {
+        width: 52px;
+        height: 52px;
+        font-size: 28px;
+    }
+
+    .file-list.grid-view .file-name {
+        font-size: 12px;
+        -webkit-line-clamp: 2;
+    }
+
+    /* 页脚 */
     .footer {
-        padding: 16px;
+        padding: 16px 12px;
+        font-size: 13px;
     }
 
     .footer p {
-        font-size: 13px;
         flex-wrap: wrap;
+    }
+
+    /* 模态框 */
+    .modal {
+        width: 92%;
+        max-width: none;
+    }
+
+    .modal-header {
+        padding: 16px;
+    }
+
+    .modal-body {
+        padding: 16px;
+    }
+
+    .modal-footer {
+        padding: 12px 16px;
+        flex-direction: column-reverse;
+    }
+
+    .modal-footer .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    /* 预览模态框 */
+    .preview-modal {
+        width: 98%;
+        max-height: 95vh;
+    }
+
+    .preview-header {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .preview-controls {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .preview-content {
+        max-height: calc(95vh - 80px);
+    }
+
+    /* Toast */
+    #toastContainer {
+        bottom: 16px;
+        right: 16px;
+        left: 16px;
+    }
+
+    .toast {
+        min-width: auto;
+        max-width: none;
     }
 }
 
 @media (max-width: 480px) {
+    .container {
+        padding: 8px;
+    }
+
     .search-box {
         min-width: 100px;
+        padding: 6px 8px;
+    }
+
+    .search-box input {
+        font-size: 12px;
+    }
+
+    .navbar-actions .btn {
+        padding: 8px 12px;
     }
 
     .navbar-actions .btn span {
         display: none;
+    }
+
+    .theme-toggle {
+        width: 36px;
+        height: 36px;
     }
 
     /* 超小屏幕隐藏面包屑，只显示当前目录名 */
@@ -441,20 +641,172 @@
         display: none;
     }
 
+    .breadcrumb-item i {
+        font-size: 14px;
+    }
+
+    /* 文件列表 */
+    .file-list-container {
+        max-height: calc(100vh - 180px);
+        border-radius: var(--radius);
+    }
+
+    .file-item {
+        grid-template-columns: 1fr 80px;
+        padding: 10px;
+    }
+
+    .file-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 20px;
+    }
+
+    .file-name {
+        font-size: 12px;
+    }
+
+    .action-btn {
+        width: 30px;
+        height: 30px;
+        font-size: 14px;
+    }
+
+    /* 网格视图 */
     .file-list.grid-view {
         grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-        padding: 12px;
+        gap: 8px;
+        padding: 8px;
     }
 
     .file-list.grid-view .file-item {
-        padding: 16px 12px;
+        padding: 12px 8px;
+        border-radius: var(--radius);
     }
 
     .file-list.grid-view .file-icon {
-        width: 56px;
-        height: 56px;
-        font-size: 32px;
+        width: 48px;
+        height: 48px;
+        font-size: 24px;
+    }
+
+    .file-list.grid-view .file-name {
+        font-size: 11px;
+        margin-top: 8px;
+    }
+
+    .file-list.grid-view .file-actions {
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    .file-list.grid-view .file-actions .action-btn {
+        width: 30px;
+        height: 30px;
+    }
+
+    /* 页脚 */
+    .footer {
+        padding: 14px 10px;
+        font-size: 12px;
+    }
+
+    /* 右键菜单 */
+    .context-menu {
+        min-width: 140px;
+    }
+
+    .context-menu-item {
+        padding: 8px 10px;
+        font-size: 13px;
+    }
+
+    /* 存储列表 */
+    .storage-item {
+        padding: 8px 10px;
+    }
+
+    .storage-item i:first-child {
+        font-size: 18px;
+    }
+
+    .storage-item-name {
+        font-size: 12px;
+    }
+
+    .storage-item-path {
+        font-size: 10px;
+    }
+
+    /* 模态框 */
+    .modal {
+        width: 95%;
+        border-radius: var(--radius);
+    }
+
+    .modal-header h2 {
+        font-size: 15px;
+    }
+
+    .preview-modal {
+        width: 100%;
+        height: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .preview-content {
+        max-height: calc(100vh - 80px);
+    }
+
+    /* PDF 和预览加载样式 */
+    .pdf-loading,
+    .preview-loading {
+        padding: 20px;
+    }
+
+    .pdf-loading .spinner,
+    .preview-loading .spinner {
+        width: 32px;
+        height: 32px;
+    }
+
+    .pdf-loading .progress-bar,
+    .preview-loading .progress-bar {
+        width: 160px;
+    }
+}
+
+/* ============ 触摸设备优化 ============ */
+@media (hover: none) and (pointer: coarse) {
+    /* 增大触摸目标 */
+    .btn,
+    .action-btn,
+    .nav-history-btn,
+    .edit-path-btn,
+    .theme-toggle,
+    .btn-icon {
+        min-height: 44px;
+    }
+
+    /* 文件项在触摸设备上始终显示操作按钮 */
+    .file-item:hover .file-actions {
+        opacity: 1;
+    }
+
+    .file-actions {
+        opacity: 1;
+    }
+
+    /* 增大复选框 */
+    .checkbox {
+        width: 20px;
+        height: 20px;
+    }
+
+    .file-list.grid-view .file-item .checkbox {
+        width: 20px;
+        height: 20px;
     }
 }
 

@@ -1618,13 +1618,28 @@ input:checked + .slider:before {
     .file-actions {
         opacity: 1;
     }
+
+    /* 模态框调整 */
+    .modal {
+        width: 95%;
+        max-width: none;
+    }
+
+    .permissions-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
 }
 
 @media (max-width: 768px) {
+    .container {
+        padding: 12px;
+    }
+
     .navbar {
         flex-direction: column;
-        gap: 16px;
-        padding: 16px;
+        gap: 12px;
+        padding: 14px;
+        border-radius: var(--radius-lg);
     }
 
     .navbar-left,
@@ -1633,14 +1648,26 @@ input:checked + .slider:before {
         justify-content: space-between;
     }
 
-    .search-box {
-        min-width: 200px;
-        flex: 1;
+    .navbar-right {
+        gap: 10px;
     }
 
+    .search-box {
+        min-width: 160px;
+        flex: 1;
+        padding: 8px 12px;
+    }
+
+    .search-box input {
+        font-size: 13px;
+    }
+
+    /* 工具栏 */
     .toolbar {
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: var(--radius-lg);
     }
 
     .toolbar-left,
@@ -1648,6 +1675,11 @@ input:checked + .slider:before {
         width: 100%;
         justify-content: center;
         flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .toolbar .btn {
+        padding: 8px 12px;
     }
 
     .toolbar .btn span {
@@ -1658,42 +1690,336 @@ input:checked + .slider:before {
         display: none;
     }
 
+    .view-toggle {
+        gap: 4px;
+    }
+
+    .view-toggle button {
+        padding: 8px 10px;
+    }
+
+    /* 文件列表 */
+    .file-list-container {
+        max-height: calc(100vh - 220px);
+    }
+
     .file-list.grid-view {
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: 10px;
         padding: 12px;
     }
 
     .file-list.grid-view .file-item {
-        padding: 16px 12px;
+        padding: 14px 10px;
     }
 
     .file-list.grid-view .file-icon {
-        width: 56px;
-        height: 56px;
+        width: 52px;
+        height: 52px;
+        font-size: 28px;
+    }
+
+    .file-list.grid-view .file-name {
+        font-size: 12px;
+        -webkit-line-clamp: 2;
+    }
+
+    /* 模态框 */
+    .modal {
+        width: 92%;
+        max-width: none;
+    }
+
+    .modal-header {
+        padding: 16px;
+    }
+
+    .modal-body {
+        padding: 16px;
+    }
+
+    .modal-footer {
+        padding: 12px 16px;
+        flex-direction: column-reverse;
+    }
+
+    .modal-footer .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .preview-modal {
+        width: 98%;
+        max-height: 95vh;
+    }
+
+    .preview-header {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .preview-controls {
+        width: 100%;
+        justify-content: center;
+    }
+
+    /* 认证页面 */
+    .auth-card {
+        padding: 32px 24px;
+        max-width: 90%;
+    }
+
+    .logo-icon {
+        width: 64px;
+        height: 64px;
+    }
+
+    .logo-icon i {
         font-size: 32px;
     }
 
-    .auth-card {
-        padding: 32px 24px;
+    .auth-header h1 {
+        font-size: 24px;
+    }
+
+    /* 权限网格 */
+    .permissions-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* 删除模态框 */
+    .delete-modal .delete-icon {
+        width: 56px;
+        height: 56px;
+    }
+
+    .delete-modal .delete-icon i {
+        font-size: 28px;
+    }
+
+    /* Toast 位置 */
+    #toastContainer {
+        bottom: 16px;
+        right: 16px;
+        left: 16px;
+    }
+
+    .toast {
+        min-width: auto;
+        max-width: none;
     }
 }
 
 @media (max-width: 480px) {
+    .container {
+        padding: 8px;
+    }
+
     .logo-text {
         display: none;
     }
 
+    .logo-icon-small {
+        width: 36px;
+        height: 36px;
+    }
+
+    .logo-icon-small i {
+        font-size: 18px;
+    }
+
     .search-box {
-        min-width: 140px;
+        min-width: 120px;
+        padding: 6px 10px;
+    }
+
+    .search-box input {
+        font-size: 12px;
     }
 
     .storage-switch {
         display: none;
     }
 
+    .navbar-actions {
+        gap: 8px;
+    }
+
+    .theme-toggle,
+    .btn-icon {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* 工具栏按钮 */
+    .toolbar-left,
+    .toolbar-right {
+        gap: 6px;
+    }
+
+    .toolbar .btn {
+        padding: 8px 10px;
+    }
+
+    .view-toggle button {
+        padding: 6px 8px;
+        font-size: 16px;
+    }
+
+    /* 文件列表 */
+    .file-list-container {
+        max-height: calc(100vh - 200px);
+        border-radius: var(--radius);
+    }
+
+    .file-item {
+        grid-template-columns: 36px 1fr 80px;
+        padding: 10px 12px;
+    }
+
+    .file-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 20px;
+    }
+
+    .file-name {
+        font-size: 13px;
+    }
+
+    .action-btn {
+        width: 30px;
+        height: 30px;
+        font-size: 14px;
+    }
+
+    /* 网格视图 */
     .file-list.grid-view {
         grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        padding: 8px;
+    }
+
+    .file-list.grid-view .file-item {
+        padding: 12px 8px;
+        border-radius: var(--radius);
+    }
+
+    .file-list.grid-view .file-icon {
+        width: 48px;
+        height: 48px;
+        font-size: 24px;
+    }
+
+    .file-list.grid-view .file-name {
+        font-size: 12px;
+        margin-top: 8px;
+    }
+
+    .file-list.grid-view .file-actions {
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    .file-list.grid-view .file-actions .action-btn {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* 面包屑导航 */
+    .breadcrumb-container {
+        max-width: 140px;
+    }
+
+    .breadcrumb {
+        padding: 4px 8px;
+        font-size: 12px;
+    }
+
+    .breadcrumb-item:not(:last-child) {
+        display: none;
+    }
+
+    .breadcrumb-item i {
+        font-size: 14px;
+    }
+
+    /* 模态框 */
+    .modal {
+        width: 95%;
+        border-radius: var(--radius-lg);
+    }
+
+    .modal-header h2 {
+        font-size: 16px;
+    }
+
+    .preview-modal {
+        width: 100%;
+        height: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .preview-content {
+        max-height: calc(100vh - 100px);
+    }
+
+    /* 认证页面 */
+    .auth-card {
+        padding: 24px 20px;
+    }
+
+    .auth-form input {
+        padding: 12px 14px;
+        font-size: 14px;
+    }
+
+    .auth-btn {
+        padding: 12px;
+        font-size: 15px;
+    }
+
+    /* 页脚 */
+    .footer {
+        padding: 16px 12px;
+        font-size: 12px;
+    }
+
+    /* 右键菜单 */
+    .context-menu {
+        min-width: 150px;
+    }
+
+    .context-menu-item {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    /* 表单元素 */
+    .form-group {
+        margin-bottom: 16px;
+    }
+
+    .form-group label {
+        font-size: 13px;
+    }
+
+    .modal input,
+    .modal select {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+}
+
+/* ============ 超大屏幕优化 ============ */
+@media (min-width: 1920px) {
+    .container {
+        max-width: 1800px;
+    }
+
+    .file-list.grid-view {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     }
 }
 
