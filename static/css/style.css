@@ -465,8 +465,9 @@ body {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow);
     border: 1px solid var(--border-light);
-    overflow: hidden;
+    overflow-y: auto;
     position: relative;
+    max-height: calc(100vh - 250px);
 }
 
 /* ============ 导航动画 ============ */
