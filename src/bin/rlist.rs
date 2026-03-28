@@ -6,12 +6,13 @@ use rlist::auth::user_store::{UserCredentialsStore, UserPermissions};
 use rlist::storage::all::StorageRegistry;
 use rlist::utils::cli::{Cli, PasswdSubCommand, RlistSubcommand};
 use rlist::utils::config_parser::{get_data_base_path, load_config_from_file};
+use rlist::utils::log::init_logging;
 use rlist::utils::password::generate_random_password;
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing_subscriber::fmt().init();
+    init_logging()?;
     let cli = Cli::parse();
     let credentials_store = UserCredentialsStore::new(get_data_base_path()?).await?;
     match cli.command {
