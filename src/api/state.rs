@@ -31,7 +31,7 @@ pub struct AppStateInner {
     pub private_registry: RwLock<StorageRegistry>,
     pub auth_config: Arc<AuthConfig>,
     pub public_registry: RwLock<StorageRegistry>,
-    pub challenge: ChallengeTask<4, 300>,
+    pub challenge: ChallengeTask<300>,
 }
 
 impl AppState {

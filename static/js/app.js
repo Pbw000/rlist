@@ -258,10 +258,14 @@ async function loadPublicStorageFiles() {
     fileList.innerHTML =
       '<div class="loading"><div class="spinner"></div></div>';
 
+    // 使用 buildPublicRequest 添加 challenge 验证
+    const requestBody = { path: currentStoragePath };
+    const requestWithChallenge = await buildPublicRequest(requestBody);
+
     const response = await fetch("/obs/list", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: currentStoragePath }),
+      body: JSON.stringify(requestWithChallenge),
     });
 
     const result = await response.json();
@@ -1211,6 +1215,48 @@ function hideNewFolderModal() {
 }
 
 /**
+ * 创建文件夹
+ */
+async function createFolder() {
+  try {
+    if (isPublicStorageMode) {
+      showToast("公开存储模式下不支持创建文件夹", "error");
+      return;
+    }
+
+    const folderName = document.getElementById("folderNameInput").value.trim();
+    if (!folderName) {
+      showToast("请输入文件夹名称", "error");
+      return;
+    }
+
+    // 验证文件夹名称
+    if (folderName.includes("/") || folderName.includes("\\")) {
+      showToast("文件夹名称不能包含斜杠", "error");
+      return;
+    }
+
+    const currentPath = fileManager.currentPath;
+    const targetPath = currentPath.endsWith("/")
+      ? currentPath + folderName
+      : currentPath + "/" + folderName;
+
+    const result = await fileManager.createFolder(folderName);
+    if (result.success) {
+      hideNewFolderModal();
+      showToast("创建文件夹成功", "success");
+      // 刷新文件列表
+      loadCurrentStorageFiles();
+    } else {
+      showToast("创建文件夹失败：" + result.message, "error");
+    }
+  } catch (error) {
+    console.error("创建文件夹失败:", error);
+    showToast("创建文件夹失败：" + error.message, "error");
+  }
+}
+
+/**
  * 显示重命名模态框
  * @param {string} path - 路径
  * @param {string} name - 名称
@@ -1334,10 +1380,29 @@ async function previewFile(path, name) {
     ];
     const docExts = ["pdf"];
 
-    // 公开模式使用公开下载端点
+    // 公开模式使用公开下载端点，需要先获取 challenge
     let url;
     if (isPublicStorageMode) {
-      url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
+      try {
+        const requestBody = { path };
+        const requestWithChallenge = await buildPublicRequest(requestBody);
+        const response = await fetch("/obs/download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestWithChallenge),
+        });
+        const result = await response.json();
+        if (result.code === 200 && result.data && result.data.download_url) {
+          url = result.data.download_url;
+        } else {
+          showToast("获取下载链接失败：" + result.message, "error");
+          return;
+        }
+      } catch (e) {
+        console.error("获取下载链接失败:", e);
+        showToast("获取下载链接失败", "error");
+        return;
+      }
     } else {
       const result = await fileManager.getPreviewUrl(path);
       if (!result.success) {
@@ -1896,10 +1961,24 @@ function downloadFromPreview() {
 async function downloadFile(path) {
   try {
     if (isPublicStorageMode) {
-      // 公开模式使用公开下载端点
-      const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
-      window.open(url, "_blank");
-      showToast("下载已开始", "success");
+      // 公开模式使用公开下载端点，需要 challenge 验证
+      const requestBody = { path };
+      const requestWithChallenge = await buildPublicRequest(requestBody);
+
+      const response = await fetch("/obs/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestWithChallenge),
+      });
+      const result = await response.json();
+
+      if (result.code === 200 && result.data && result.data.download_url) {
+        const url = result.data.download_url;
+        window.open(url, "_blank");
+        showToast("下载已开始", "success");
+      } else {
+        showToast("下载失败：" + result.message, "error");
+      }
     } else {
       await fileManager.downloadFile(path);
     }
@@ -2480,13 +2559,27 @@ async function copyPath(path) {
 async function copyShareUrl(path) {
   try {
     if (isPublicStorageMode) {
-      // 公开模式使用公开下载端点
-      const url = `${window.location.origin}/obs/download?path=${encodeURIComponent(path)}`;
-      const success = await copyToClipboard(url);
-      if (success) {
-        showToast("分享链接已复制到剪贴板", "success");
+      // 公开模式使用公开下载端点，需要 challenge 验证
+      const requestBody = { path };
+      const requestWithChallenge = await buildPublicRequest(requestBody);
+
+      const response = await fetch("/obs/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestWithChallenge),
+      });
+      const result = await response.json();
+
+      if (result.code === 200 && result.data && result.data.download_url) {
+        const url = result.data.download_url;
+        const success = await copyToClipboard(url);
+        if (success) {
+          showToast("分享链接已复制到剪贴板", "success");
+        } else {
+          showToast("复制失败", "error");
+        }
       } else {
-        showToast("复制失败", "error");
+        showToast("获取链接失败：" + result.message, "error");
       }
     } else {
       await fileManager.copyShareUrl(path);
@@ -2566,6 +2659,86 @@ function openAdminPanel() {
   } catch (error) {
     console.error("打开管理后台失败:", error);
     showToast("操作失败：" + error.message, "error");
+  }
+}
+
+// ==================== 刷新缓存功能 ====================
+
+/**
+ * 显示刷新缓存模态框
+ */
+function showRefreshCacheModal() {
+  try {
+    const modal = document.getElementById("refreshCacheModal");
+    const pathInput = document.getElementById("refreshCachePath");
+
+    // 默认值为当前路径
+    if (fileManager && fileManager.currentPath) {
+      pathInput.value = fileManager.currentPath || "/";
+    } else {
+      pathInput.value = "/";
+    }
+
+    modal.style.display = "flex";
+  } catch (error) {
+    console.error("显示刷新缓存模态框失败:", error);
+    showToast("操作失败：" + error.message, "error");
+  }
+}
+
+/**
+ * 隐藏刷新缓存模态框
+ */
+function hideRefreshCacheModal() {
+  try {
+    const modal = document.getElementById("refreshCacheModal");
+    modal.style.display = "none";
+  } catch (error) {
+    console.error("隐藏刷新缓存模态框失败:", error);
+  }
+}
+
+/**
+ * 确认刷新缓存
+ */
+async function confirmRefreshCache() {
+  try {
+    const pathInput = document.getElementById("refreshCachePath");
+    let path = pathInput.value.trim();
+
+    if (!path) {
+      path = "/";
+      pathInput.value = "/";
+    }
+
+    // 确保路径以 / 开头
+    if (!path.startsWith("/")) {
+      path = "/" + path;
+    }
+
+    // 调用 API 刷新缓存
+    const response = await fetch("/api/fs/refresh-cache", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({ path }),
+    });
+
+    const result = await response.json();
+
+    if (result.code === 200) {
+      showToast("缓存刷新成功", "success");
+      hideRefreshCacheModal();
+      // 刷新当前文件列表
+      refresh();
+    } else {
+      showToast("刷新缓存失败：" + result.message, "error");
+    }
+  } catch (error) {
+    console.error("刷新缓存失败:", error);
+    showToast("刷新缓存失败：" + error.message, "error");
   }
 }
 

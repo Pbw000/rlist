@@ -26,6 +26,14 @@ pub struct UserPermissions {
     pub list: bool,
 }
 
+/// 用户配置（包含权限和根目录）
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct UserConfig {
+    pub permissions: UserPermissions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_dir: Option<String>,
+}
+
 impl UserPermissions {
     /// 转换为位掩码
     pub fn to_bits(&self) -> u8 {
@@ -130,6 +138,7 @@ impl UserCredentialsStore {
             salt BLOB NOT NULL,
             password_hash TEXT NOT NULL,
             permissions INTEGER NOT NULL DEFAULT 255,
+            root_dir TEXT,
             fail_count INTEGER NOT NULL DEFAULT 0,
             ban_exp DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -138,6 +147,12 @@ impl UserCredentialsStore {
         )
         .execute(&pool)
         .await?;
+
+        // 添加 root_dir 列（如果不存在）
+        sqlx::query("ALTER TABLE user_credentials ADD COLUMN root_dir TEXT")
+            .execute(&pool)
+            .await
+            .ok();
 
         Ok(UserCredentialsStore { pool })
     }
@@ -148,6 +163,7 @@ impl UserCredentialsStore {
         username: &str,
         password: &str,
         permissions: UserPermissions,
+        root_dir: Option<String>,
     ) -> Result<(), (StatusCode, String)> {
         // 验证用户名
         if username.is_empty() || username.len() > MAX_USERNAME_LENGTH {
@@ -192,12 +208,13 @@ impl UserCredentialsStore {
 
         // 存储凭证到数据库
         sqlx::query(
-            "INSERT INTO user_credentials (username, salt, password_hash, permissions) VALUES (?, ?, ?, ?)",
+            "INSERT INTO user_credentials (username, salt, password_hash, permissions, root_dir) VALUES (?, ?, ?, ?, ?)",
         )
         .bind(&username)
         .bind(&salt.as_slice())
         .bind(&password_hash)
         .bind(&permissions.to_bits())
+        .bind(&root_dir)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -211,15 +228,15 @@ impl UserCredentialsStore {
         Ok(())
     }
 
-    /// 验证用户凭证并返回权限
+    /// 验证用户凭证并返回用户配置（包含权限和根目录）
     pub async fn authenticate(
         &self,
         username: &str,
         password: &str,
-    ) -> Result<UserPermissions, (StatusCode, String)> {
-        // 从数据库获取用户凭证（包括 fail_count 和 ban_exp）
-        let result: Option<(Vec<u8>, String, u8, i32, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT salt, password_hash, permissions, fail_count, ban_exp FROM user_credentials WHERE username = ?",
+    ) -> Result<UserConfig, (StatusCode, String)> {
+        // 从数据库获取用户凭证（包括 fail_count 和 ban_exp 和 root_dir）
+        let result: Option<(Vec<u8>, String, u8, Option<String>, i32, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT salt, password_hash, permissions, root_dir, fail_count, ban_exp FROM user_credentials WHERE username = ?",
         )
         .bind(username)
         .fetch_optional(&self.pool)
@@ -232,16 +249,19 @@ impl UserCredentialsStore {
             )
         })?;
 
-        let (salt_bytes, stored_hash, permissions_bits, fail_count, ban_exp) = match result {
-            Some((salt, hash, perms, fails, ban)) => (salt, hash, perms, fails, ban),
-            None => {
-                // 用户不存在时也要消耗时间，防止时序攻击
-                let delay = rand::rng().random_range(100..=2000);
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                warn!("用户 '{}' 不存在", username);
-                return Err((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()));
-            }
-        };
+        let (salt_bytes, stored_hash, permissions_bits, root_dir, fail_count, ban_exp) =
+            match result {
+                Some((salt, hash, perms, root, fails, ban)) => {
+                    (salt, hash, perms, root, fails, ban)
+                }
+                None => {
+                    // 用户不存在时也要消耗时间，防止时序攻击
+                    let delay = rand::rng().random_range(100..=2000);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    warn!("用户 '{}' 不存在", username);
+                    return Err((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()));
+                }
+            };
 
         // 检查账户是否处于封禁状态
         if let Some(ban_time) = ban_exp {
@@ -340,7 +360,10 @@ impl UserCredentialsStore {
             )
         })?;
 
-        Ok(UserPermissions::from_bits(permissions_bits))
+        Ok(UserConfig {
+            permissions: UserPermissions::from_bits(permissions_bits),
+            root_dir,
+        })
     }
 
     /// 更新用户权限
@@ -362,6 +385,61 @@ impl UserCredentialsStore {
                 )
             })?;
         Ok(())
+    }
+
+    /// 更新用户根目录
+    pub async fn update_root_dir(
+        &self,
+        username: &str,
+        root_dir: Option<String>,
+    ) -> Result<(), (StatusCode, String)> {
+        // 验证 root_dir 格式（必须以 / 开头或为 None）
+        if let Some(ref dir) = root_dir {
+            if !dir.starts_with('/') {
+                return Err((StatusCode::BAD_REQUEST, "根目录必须以 / 开头".to_string()));
+            }
+        }
+
+        sqlx::query("UPDATE user_credentials SET root_dir = ? WHERE username = ?")
+            .bind(&root_dir)
+            .bind(username)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                error!("更新用户 '{}' 根目录时数据库错误：{}", username, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "服务器内部错误".to_string(),
+                )
+            })?;
+        Ok(())
+    }
+
+    /// 获取用户配置（包含权限和根目录）
+    pub async fn get_user_config(
+        &self,
+        username: &str,
+    ) -> Result<UserConfig, (StatusCode, String)> {
+        let result: Option<(u8, Option<String>)> =
+            sqlx::query_as("SELECT permissions, root_dir FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("获取用户 '{}' 配置时数据库错误：{}", username, e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        match result {
+            Some((bits, root_dir)) => Ok(UserConfig {
+                permissions: UserPermissions::from_bits(bits),
+                root_dir,
+            }),
+            None => Err((StatusCode::NOT_FOUND, "用户不存在".to_string())),
+        }
     }
 
     pub async fn exists(&self, username: &str) -> bool {

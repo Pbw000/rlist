@@ -228,6 +228,9 @@ impl IntoHashContext for RegisterRequest {
         context.update(self.username.as_bytes());
         context.update(self.password.as_bytes());
         context.update(&self.timestamp.to_be_bytes());
+        if let Some(ref root_dir) = self.root_dir {
+            context.update(root_dir.as_bytes());
+        }
         context
     }
 }
@@ -245,7 +248,7 @@ pub async fn register(
     }
 
     if let Err(_) = challenge
-        .validate(payload.salt, &payload.claim, &payload)
+        .validate::<_, 4>(payload.salt, &payload.claim, &payload)
         .await
     {
         return ApiResponse::error(400, "Challenge 挑战失败".to_string());
@@ -259,18 +262,73 @@ pub async fn register(
     {
         Ok(_user_id) => {
             let permissions: crate::auth::user_store::UserPermissions = payload.permissions.into();
-            if let Err(err) = state
-                .inner
-                .auth_config
-                .credentials_store
+            let credentials_store = &state.inner.auth_config.credentials_store;
+
+            // 更新权限
+            if let Err(err) = credentials_store
                 .update_permissions(&payload.username, permissions)
                 .await
             {
                 tracing::warn!("用户 {} 权限更新失败：{}", payload.username, err.1);
             }
+
+            // 更新根目录（如果提供）
+            if let Some(root_dir) = payload.root_dir {
+                if let Err(err) = credentials_store
+                    .update_root_dir(&payload.username, Some(root_dir))
+                    .await
+                {
+                    tracing::warn!("用户 {} 根目录更新失败：{}", payload.username, err.1);
+                }
+            }
+
             ApiResponse::success(RegisterResponse {
                 message: "注册成功".to_string(),
             })
+        }
+        Err((status, msg)) => ApiResponse::error(status.as_u16() as i32, msg),
+    }
+}
+
+/// 更新用户根目录
+#[axum::debug_handler]
+pub async fn update_user_root_dir(
+    State(state): State<AppState>,
+    Json(req): Json<UpdateUserRootDirRequest>,
+) -> impl IntoResponse {
+    let root_dir_clone = req.root_dir.clone();
+    match state
+        .inner
+        .auth_config
+        .credentials_store
+        .update_root_dir(&req.username, req.root_dir)
+        .await
+    {
+        Ok(()) => {
+            // 更新内存中的用户信息
+            let user_id = state.inner.auth_config.username_to_id(&req.username);
+            if let Some(mut auth_info) = state
+                .inner
+                .auth_config
+                .users
+                .read()
+                .await
+                .get(&user_id)
+                .cloned()
+            {
+                auth_info.root_dir = root_dir_clone;
+                state
+                    .inner
+                    .auth_config
+                    .users
+                    .write()
+                    .await
+                    .insert(user_id, auth_info);
+            }
+
+            ApiResponse::success(serde_json::json!({
+                "message": format!("用户 {} 根目录更新成功", req.username)
+            }))
         }
         Err((status, msg)) => ApiResponse::error(status.as_u16() as i32, msg),
     }

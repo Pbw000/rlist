@@ -149,7 +149,7 @@ async function loadUsers() {
   const tbody = document.getElementById("usersTableBody");
   tbody.innerHTML = `
     <tr>
-      <td colspan="10" class="empty-cell">
+      <td colspan="11" class="empty-cell">
         <div class="loading">
           <div class="spinner"></div>
           <span>加载中...</span>
@@ -163,7 +163,7 @@ async function loadUsers() {
     const users = result.data;
     if (users.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="10" class="empty-cell">暂无用户</td></tr>';
+        '<tr><td colspan="11" class="empty-cell">暂无用户</td></tr>';
       return;
     }
 
@@ -172,6 +172,7 @@ async function loadUsers() {
         (user) => `
         <tr>
           <td><strong>${escapeHtml(user.username)}</strong></td>
+          <td><span class="root-dir-cell">${escapeHtml(user.root_dir || "无限制")}</span></td>
           <td>${renderPermissionBadge(user.permissions.read)}</td>
           <td>${renderPermissionBadge(user.permissions.download)}</td>
           <td>${renderPermissionBadge(user.permissions.upload)}</td>
@@ -201,7 +202,7 @@ async function loadUsers() {
       )
       .join("");
   } else {
-    tbody.innerHTML = `<tr><td colspan="10" class="empty-cell">加载失败：${result.message || "未知错误"}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="empty-cell">加载失败：${result.message || "未知错误"}</td></tr>`;
   }
 }
 
@@ -226,6 +227,7 @@ function showAddUserModal() {
     document.getElementById("addUserModal").style.display = "flex";
     document.getElementById("addUsername").value = "";
     document.getElementById("addPassword").value = "";
+    document.getElementById("addRootDir").value = "";
     document.getElementById("permRead").checked = true;
     document.getElementById("permDownload").checked = true;
     document.getElementById("permUpload").checked = true;
@@ -289,7 +291,13 @@ async function confirmAddUser() {
       list: document.getElementById("permList").checked,
     };
 
-    const result = await addUser(username, password, permissions);
+    const rootDir = document.getElementById("addRootDir").value.trim();
+    const result = await addUser(
+      username,
+      password,
+      permissions,
+      rootDir || null,
+    );
     if (result.code === 200) {
       hideAddUserModal();
       showToast("用户添加成功", "success");
@@ -592,6 +600,7 @@ async function showEditPermissionsModal(username) {
     }
 
     document.getElementById("editUsername").value = username;
+    document.getElementById("editRootDir").value = user.root_dir || "";
     document.getElementById("editPermRead").checked = user.permissions.read;
     document.getElementById("editPermDownload").checked =
       user.permissions.download;
@@ -627,9 +636,16 @@ function hideEditPermissionsModal() {
 async function confirmEditPermissions() {
   try {
     const username = document.getElementById("editUsername").value.trim();
+    const rootDir = document.getElementById("editRootDir").value.trim();
 
     if (!username) {
       showToast("用户名无效", "error");
+      return;
+    }
+
+    // 验证根目录格式
+    if (rootDir && !rootDir.startsWith("/")) {
+      showToast("根目录必须以 / 开头", "error");
       return;
     }
 
@@ -644,14 +660,23 @@ async function confirmEditPermissions() {
       list: document.getElementById("editPermList").checked,
     };
 
-    const result = await updatePermissions(username, permissions);
-    if (result.code === 200) {
-      hideEditPermissionsModal();
-      showToast("权限更新成功", "success");
-      loadUsers();
-    } else {
-      showToast("更新失败：" + result.message, "error");
+    // 更新权限
+    const permResult = await updatePermissions(username, permissions);
+    if (permResult.code !== 200) {
+      showToast("权限更新失败：" + permResult.message, "error");
+      return;
     }
+
+    // 更新根目录
+    const rootDirResult = await updateRootDir(username, rootDir || null);
+    if (rootDirResult.code !== 200) {
+      showToast("根目录更新失败：" + rootDirResult.message, "error");
+      return;
+    }
+
+    hideEditPermissionsModal();
+    showToast("权限和根目录更新成功", "success");
+    loadUsers();
   } catch (error) {
     console.error("更新权限失败:", error);
     showToast("更新失败：" + error.message, "error");

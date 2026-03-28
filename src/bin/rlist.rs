@@ -100,7 +100,7 @@ async fn create_admin_account(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let random_password = generate_random_password();
     if let Err(e) = credentials_store
-        .register("admin", &random_password, UserPermissions::admin())
+        .register("admin", &random_password, UserPermissions::admin(), None)
         .await
     {
         tracing::error!("Failed to create admin user: {:?}", e);

@@ -50,7 +50,7 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
             credentials_store: Arc::new(credentials_store),
         }
     }
-    fn username_to_id(&self, user_name: &str) -> u64 {
+    pub fn username_to_id(&self, user_name: &str) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
@@ -102,14 +102,16 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
                 &username,
                 password.as_ref(),
                 UserPermissions::default_user(),
+                None, // 默认无根目录限制
             )
             .await?;
 
-        let permissions = self.credentials_store.get_permissions(&username).await?;
+        let user_config = self.credentials_store.get_user_config(&username).await?;
 
         let auth_info = AuthInfo {
             user_name: username,
-            permission: permissions,
+            permission: user_config.permissions,
+            root_dir: user_config.root_dir,
         };
 
         {
@@ -125,8 +127,8 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
         username: String,
         password: String,
     ) -> Result<String, (StatusCode, String)> {
-        // 验证用户凭证并获取权限
-        let permissions = self
+        // 验证用户凭证并获取用户配置（包含权限和根目录）
+        let user_config = self
             .credentials_store
             .authenticate(&username, &password)
             .await?;
@@ -137,7 +139,8 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
         // 更新或创建用户信息
         let auth_info = AuthInfo {
             user_name: username,
-            permission: permissions,
+            permission: user_config.permissions,
+            root_dir: user_config.root_dir,
         };
 
         {
@@ -173,6 +176,7 @@ pub struct AuthClaim {
 pub struct AuthInfo {
     pub user_name: String,
     pub permission: UserPermissions,
+    pub root_dir: Option<String>,
 }
 
 /// 权限类型枚举

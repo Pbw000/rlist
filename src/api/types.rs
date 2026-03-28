@@ -62,6 +62,14 @@ pub struct UpdatePermissionsRequest {
     pub permissions: UserPermissions,
 }
 
+/// 更新用户根目录请求
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserRootDirRequest {
+    pub username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_dir: Option<String>,
+}
+
 /// 移动/复制请求
 #[derive(Debug, Deserialize)]
 pub struct MoveCopyRequest {
@@ -89,6 +97,8 @@ pub struct RegisterRequest {
     pub nonce: String,
     pub claim: String,
     pub permissions: UserPermissions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_dir: Option<String>,
 }
 
 /// 登录请求
@@ -111,6 +121,12 @@ pub struct CompleteUploadParams {
     pub upload_id: String,
     pub file_id: String,
     pub content_hash: crate::storage::model::Hash,
+}
+
+/// 刷新缓存请求
+#[derive(Debug, Deserialize)]
+pub struct RefreshCacheRequest {
+    pub path: String,
 }
 
 // ==================== 响应类型 ====================
@@ -274,4 +290,22 @@ pub struct AddStorageResponse {
     pub prefix: String,
     pub driver: String,
     pub message: String,
+}
+
+/// 公开节点操作请求（带 Challenge 验证）
+#[derive(Debug, Deserialize)]
+pub struct PublicFsRequest {
+    pub path: Option<String>,
+    /// 页码（从 0 开始），与 cursor 二选一
+    pub page: Option<u32>,
+    /// 游标（页码，从 0 开始），与 page 二选一
+    pub cursor: Option<usize>,
+    /// 每页数量，默认 20
+    pub per_page: Option<u32>,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub salt: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str_or_num")]
+    pub timestamp: u64,
+    pub nonce: String,
+    pub claim: String,
 }

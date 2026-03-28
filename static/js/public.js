@@ -215,10 +215,13 @@ async function loadFiles(path = currentPath, reset = true) {
       requestBody.cursor = currentCursor;
     }
 
+    // 添加 Challenge 验证
+    const requestWithChallenge = await buildPublicRequest(requestBody);
+
     const response = await fetch(`${API_BASE}/list`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(requestWithChallenge),
     });
 
     const result = await response.json();
@@ -775,11 +778,33 @@ async function previewFile(path, name) {
   ];
   const docExts = ["pdf"];
 
-  // 获取预览 URL - 使用中继模式直接流式传输
-  const url = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
-  const fullUrl = `${window.location.origin}${url}`;
+  // 获取预览 URL - 先通过 Challenge 验证获取下载链接
   previewContent.innerHTML =
     '<div class="preview-placeholder"><i class="ti ti-loader"></i><p>加载中...</p></div>';
+
+  // 使用 buildPublicRequest 获取带 challenge 的下载链接
+  let downloadUrl;
+  try {
+    const requestBody = { path };
+    const requestWithChallenge = await buildPublicRequest(requestBody);
+    const response = await fetch(`${API_BASE}/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestWithChallenge),
+    });
+    const result = await response.json();
+    if (result.code === 200 && result.data && result.data.download_url) {
+      downloadUrl = result.data.download_url;
+    } else {
+      // Fallback: 使用中继模式
+      downloadUrl = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
+    }
+  } catch (e) {
+    console.error("获取下载链接失败:", e);
+    downloadUrl = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
+  }
+
+  const fullUrl = `${window.location.origin}${downloadUrl}`;
 
   if (imageExts.includes(ext)) {
     previewFileType = "image";
@@ -789,11 +814,11 @@ async function previewFile(path, name) {
     previewContent.innerHTML = `<video controls src="${fullUrl}"></video>`;
   } else if (audioExts.includes(ext)) {
     previewFileType = "audio";
-    previewContent.innerHTML = `<audio controls src="${url}"></audio>`;
+    previewContent.innerHTML = `<audio controls src="${fullUrl}"></audio>`;
   } else if (textExts.includes(ext)) {
     previewFileType = "text";
     try {
-      const contentResponse = await fetch(url);
+      const contentResponse = await fetch(fullUrl);
       const content = await contentResponse.text();
       previewContent.innerHTML = `<pre>${escapeHtml(content.substring(0, 100000))}</pre>`;
     } catch (e) {
@@ -801,7 +826,7 @@ async function previewFile(path, name) {
     }
   } else if (docExts.includes(ext)) {
     previewFileType = "pdf";
-    await renderPdfPreview(url, previewContent);
+    await renderPdfPreview(fullUrl, previewContent);
   } else {
     previewFileType = "other";
     previewContent.innerHTML = `<div class="preview-placeholder"><i class="ti ti-file"></i><p>此文件类型不支持预览</p><p style="margin-top:8px;color:var(--text-secondary)">您可以下载文件后查看</p></div>`;
@@ -1090,19 +1115,24 @@ function downloadFromPreview() {
  */
 async function downloadFile(path) {
   try {
-    // 先尝试获取直链
-    const response = await fetch(
-      `${API_BASE}/fs/get?path=${encodeURIComponent(path)}`,
-    );
+    // 先尝试获取直链 - 需要 Challenge 验证
+    const requestBody = { path };
+    const requestWithChallenge = await buildPublicRequest(requestBody);
+
+    const response = await fetch(`${API_BASE}/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestWithChallenge),
+    });
     const result = await response.json();
 
     let downloadUrl;
-    if (result.code === 200 && result.data && result.data.url) {
+    if (result.code === 200 && result.data && result.data.download_url) {
       // 使用存储驱动提供的直链
-      downloadUrl = result.data.url;
+      downloadUrl = result.data.download_url;
     } else {
-      // Fallback: 使用中继模式下载
-      downloadUrl = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
+      showToast("获取下载链接失败：" + result.message, "error");
+      return;
     }
 
     const url = `${window.location.origin}${downloadUrl}`;
@@ -1110,11 +1140,7 @@ async function downloadFile(path) {
     showToast("下载已开始", "success");
   } catch (error) {
     console.error("下载失败:", error);
-    // Fallback: 使用中继模式下载
-    const downloadUrl = `${API_BASE}/fs/download?path=${encodeURIComponent(path)}`;
-    const url = `${window.location.origin}${downloadUrl}`;
-    window.open(url, "_blank");
-    showToast("下载已开始", "success");
+    showToast("下载失败：" + error.message, "error");
   }
 }
 

@@ -10,10 +10,7 @@
         <meta http-equiv="Pragma" content="no-cache" />
         <meta http-equiv="Expires" content="0" />
         <title>RList 管理后台</title>
-        <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"
-        />
+        <link rel="stylesheet" href="/css/tabler-icons.css?v=20260328" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
@@ -122,6 +119,7 @@
                                     <thead>
                                         <tr>
                                             <th>用户名</th>
+                                            <th>根目录</th>
                                             <th>读取</th>
                                             <th>下载</th>
                                             <th>上传</th>
@@ -228,6 +226,20 @@
                         />
                     </div>
                     <div class="form-group">
+                        <label
+                            ><i class="ti ti-folder"></i> 根目录（可选）</label
+                        >
+                        <input
+                            type="text"
+                            id="addRootDir"
+                            placeholder="例如：/users/username，留空表示无限制"
+                        />
+                        <p class="form-help">
+                            <i class="ti ti-info-circle"></i>
+                            设置后用户只能访问该目录及其子目录
+                        </p>
+                    </div>
+                    <div class="form-group">
                         <label class="permission-label">权限设置</label>
                         <div class="permissions-grid">
                             <label class="permission-checkbox">
@@ -311,6 +323,18 @@
                     <div class="form-group">
                         <label><i class="ti ti-user"></i> 用户名</label>
                         <input type="text" id="editUsername" disabled />
+                    </div>
+                    <div class="form-group">
+                        <label><i class="ti ti-folder"></i> 根目录</label>
+                        <input
+                            type="text"
+                            id="editRootDir"
+                            placeholder="例如：/users/username，留空表示无限制"
+                        />
+                        <p class="form-help">
+                            <i class="ti ti-info-circle"></i>
+                            设置后用户只能访问该目录及其子目录
+                        </p>
                     </div>
                     <div class="form-group">
                         <label class="permission-label">权限设置</label>

@@ -105,7 +105,11 @@ pub async fn auth_permission_middleware(
     }
 
     let mut request = Request::from_parts(parts, body);
-    request.extensions_mut().insert(user_info);
+    request.extensions_mut().insert(user_info.clone());
+    // 添加用户根目录到扩展（如果存在）
+    if let Some(ref root_dir) = user_info.root_dir {
+        request.extensions_mut().insert(root_dir.clone());
+    }
     Ok(next.run(request).await)
 }
 

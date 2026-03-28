@@ -283,7 +283,7 @@ impl WopanStorage {
             tracing::warn!("WoPan Request failed(body={},err={})", body_str, e);
         })?;
         let decrypted_data = self.decrypt_body(&encrypted_data)?;
-        dbg!(&decrypted_data);
+        // dbg!(&decrypted_data);
 
         serde_json::from_str(&decrypted_data)
             .map_err(|e| WopanError::ParseError(format!("解析响应数据失败：{}", e)))
@@ -475,7 +475,7 @@ impl Storage for WopanStorage {
 
     async fn download_file(&self, path: &str) -> Result<Box<dyn FileContent>, WopanError> {
         let meta = self.get_download_meta_by_path(path).await?;
-        dbg!(&meta);
+        // dbg!(&meta);
         // wopan 下载链接不需要额外认证头，直接返回 URL
         let reader = UrlReader::builder(&meta.download_url)
             .header("Origin", "https://pan.wo.cn")
@@ -693,34 +693,93 @@ impl Storage for WopanStorage {
         } else {
             ("root".to_string(), path_str)
         };
-        let hash = params.hash;
-        let create_result = self
-            .create_upload_record(&parent_file_id, file_name, params.size, &hash)
-            .await?;
 
-        if create_result.upload_url.is_empty() {
-            self.build_cache(&params.path).await.ok();
-            Ok(UploadInfo {
-                upload_url: "about:blank".into(),
-                method: "POST".into(),
-                form_fields: None,
-                headers: None,
-                complete_url: None,
-            })
+        // 准备上传参数
+        let space_type = self.get_space_type();
+        let zone_url = self.get_zone_url().await?;
+        let family_id = if space_type == SPACE_TYPE_FAMILY {
+            self.get_family_id().await
         } else {
-            let mut headers = std::collections::HashMap::new();
-            headers.insert("Content-Type".into(), "application/octet-stream".into());
-            Ok(UploadInfo {
-                upload_url: create_result.upload_url,
-                method: "PUT".into(),
-                form_fields: None,
-                headers: Some(headers),
-                complete_url: Some(format!(
-                    "/api/fs/upload/complete?path={}&file_id={}&fid={}",
-                    params.path, create_result.file_id, create_result.fid
-                )),
-            })
+            None
+        };
+
+        // 生成 uniqueId (时间戳 + 随机字符串)
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let random_str = uuid::Uuid::new_v4().simple().to_string();
+        let unique_id = format!("{}_{}", timestamp, random_str);
+        let directory_id = if space_type == SPACE_TYPE_FAMILY {
+            family_id.clone().unwrap_or_else(|| "0".to_string())
+        } else {
+            "0".to_string()
+        };
+        let now = chrono::Local::now();
+        let batch_no = now.format("%Y%m%d%H%M%S").to_string();
+
+        // 构建 fileInfo JSON
+        let mut file_info_obj = serde_json::json!({
+            "spaceType": space_type,
+            "directoryId": directory_id,
+            "batchNo": batch_no,
+            "fileName": file_name,
+            "fileSize": params.size,
+            "fileType": self.get_file_type(file_name),
+        });
+
+        // 根据空间类型添加额外字段
+        if space_type == SPACE_TYPE_FAMILY {
+            if let Some(ref fid) = family_id {
+                file_info_obj["familyId"] = serde_json::json!(fid);
+            }
         }
+
+        let file_info_json = serde_json::to_string(&file_info_obj)
+            .map_err(|e| WopanError::ParseError(format!("Serialize file_info failed: {}", e)))?;
+        let file_info = self.encrypt_body(&file_info_json)?;
+
+        const DEFAULT_PART_SIZE: u64 = 8 * 1024 * 1024;
+        let total_part = if params.size == 0 {
+            1
+        } else {
+            (params.size + DEFAULT_PART_SIZE - 1) / DEFAULT_PART_SIZE
+        };
+
+        // 构建表单字段
+        let mut form_fields = std::collections::HashMap::new();
+        form_fields.insert("uniqueId".to_string(), unique_id.clone());
+        form_fields.insert("accessToken".to_string(), self.config.access_token.clone());
+        form_fields.insert("fileName".to_string(), file_name.to_owned());
+        form_fields.insert("psToken".to_string(), "undefined".to_string());
+        form_fields.insert("fileSize".to_string(), params.size.to_string());
+        form_fields.insert("totalPart".to_string(), total_part.to_string());
+        form_fields.insert("partSize".to_string(), params.size.to_string());
+        form_fields.insert("partIndex".to_string(), "1".to_string());
+        form_fields.insert("channel".to_string(), CHANNEL_WOHOME.to_string());
+        form_fields.insert("directoryId".to_string(), directory_id.clone());
+        form_fields.insert("fileInfo".to_string(), file_info);
+        form_fields.insert("spaceType".to_string(), space_type.to_string());
+        form_fields.insert("parentDirectoryId".to_string(), parent_file_id.to_owned());
+
+        if let Some(ref fid) = family_id {
+            form_fields.insert("familyId".to_string(), fid.clone());
+        }
+
+        let upload_url = format!("{}/openapi/client/{}", zone_url, KEY_UPLOAD_2C);
+
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("Origin".into(), "https://pan.wo.cn".into());
+        headers.insert("Referer".into(), "https://pan.wo.cn/".into());
+        headers.insert("User-Agent".into(), DEFAULT_UA.into());
+
+        Ok(UploadInfo {
+            upload_url,
+            method: "POST".into(),
+            form_fields: Some(form_fields),
+            headers: Some(headers),
+            complete_url: None,
+        })
     }
 
     async fn complete_upload(
@@ -1083,83 +1142,6 @@ impl WopanStorage {
         }
         self.update_cache_batch(all_entries).await;
         Ok(())
-    }
-
-    async fn create_upload_record(
-        &self,
-        parent_file_id: &str,
-        file_name: &str,
-        file_size: u64,
-        _content_hash: &crate::storage::model::Hash,
-    ) -> Result<UploadCreateInfo, WopanError> {
-        let space_type = self.get_space_type();
-        let zone_url = self.get_zone_url().await?;
-        let family_id = if space_type == SPACE_TYPE_FAMILY {
-            self.get_family_id().await
-        } else {
-            None
-        };
-
-        // 生成 uniqueId (时间戳 + 随机字符串)
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let random_str = uuid::Uuid::new_v4().simple().to_string();
-        let unique_id = format!("{}_{}", timestamp, random_str);
-
-        // 根据 Python 代码，directoryId 在个人空间为 "0"，家庭空间为 family_id
-        let directory_id = if space_type == SPACE_TYPE_FAMILY {
-            family_id.clone().unwrap_or_else(|| "0".to_string())
-        } else {
-            "0".to_string()
-        };
-
-        // 生成 batchNo (时间戳格式：20060102150405)
-        let now = chrono::Local::now();
-        let batch_no = now.format("%Y%m%d%H%M%S").to_string();
-
-        // 使用 struct 构建 fileInfo，避免 json! 宏
-        let file_info_obj = WopanFileInfo {
-            space_type,
-            directory_id: &directory_id,
-            batch_no: &batch_no,
-            file_name,
-            file_size,
-            file_type: self.get_file_type(file_name),
-            family_id: family_id.as_deref(),
-        };
-
-        // 使用与 encrypt_body 相同的方式加密 fileInfo
-        let file_info_json = serde_json::to_string(&file_info_obj)
-            .map_err(|e| WopanError::ParseError(format!("Serialize file_info failed: {}", e)))?;
-        let file_info = self.encrypt_body(&file_info_json)?;
-
-        // 计算总片数（参考 Go SDK）
-        const DEFAULT_PART_SIZE: u64 = 8 * 1024 * 1024; // 8MB
-        let total_part = if file_size == 0 {
-            1
-        } else {
-            (file_size + DEFAULT_PART_SIZE - 1) / DEFAULT_PART_SIZE
-        };
-
-        let upload_url = format!("{}/openapi/client/{}", zone_url, KEY_UPLOAD_2C);
-
-        Ok(UploadCreateInfo {
-            file_id: String::new(), // 将在上传完成后填充
-            fid: String::new(),     // 将在上传完成后填充
-            upload_url,
-            unique_id,
-            access_token: self.config.access_token.clone(),
-            file_info,
-            directory_id,
-            space_type: space_type.to_string(),
-            parent_directory_id: parent_file_id.to_owned(),
-            file_name: file_name.to_owned(),
-            file_size,
-            total_part: total_part.to_string(),
-            family_id,
-        })
     }
 
     /// 根据文件名获取文件类型 (参考 wopan-sdk-go)

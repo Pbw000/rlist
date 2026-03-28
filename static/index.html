@@ -10,10 +10,7 @@
         <meta http-equiv="Pragma" content="no-cache" />
         <meta http-equiv="Expires" content="0" />
         <title>RList 文件管理</title>
-        <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"
-        />
+        <link rel="stylesheet" href="/css/tabler-icons.css?v=20260328" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
@@ -232,6 +229,14 @@
                     <button class="btn btn-ghost" onclick="refresh()">
                         <i class="ti ti-refresh"></i>
                         <span>刷新</span>
+                    </button>
+                    <button
+                        class="btn btn-ghost"
+                        onclick="showRefreshCacheModal()"
+                        title="刷新路径缓存"
+                    >
+                        <i class="ti ti-refresh-dot"></i>
+                        <span>刷新缓存</span>
                     </button>
                 </div>
                 <div class="toolbar-right">
@@ -579,6 +584,58 @@
                     >
                         <div class="loading"><div class="spinner"></div></div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 刷新缓存模态框 -->
+        <div class="modal-overlay" id="refreshCacheModal" style="display: none">
+            <div class="modal modal-sm">
+                <div class="modal-header">
+                    <h2>
+                        <i class="ti ti-refresh-dot"></i>
+                        刷新路径缓存
+                    </h2>
+                    <button
+                        class="modal-close"
+                        onclick="hideRefreshCacheModal()"
+                    >
+                        <i class="ti ti-x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>
+                            <i class="ti ti-folder"></i>
+                            要刷新的路径
+                        </label>
+                        <input
+                            type="text"
+                            id="refreshCachePath"
+                            placeholder="输入路径，例如：/movies 或 /"
+                            value="/"
+                        />
+                        <p class="form-help">
+                            <i class="ti ti-info-circle"></i>
+                            输入需要刷新缓存的绝对路径，留空或输入 /
+                            表示刷新根目录
+                        </p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button
+                        class="btn btn-ghost"
+                        onclick="hideRefreshCacheModal()"
+                    >
+                        取消
+                    </button>
+                    <button
+                        class="btn btn-primary"
+                        onclick="confirmRefreshCache()"
+                    >
+                        <i class="ti ti-refresh"></i>
+                        确定刷新
+                    </button>
                 </div>
             </div>
         </div>

@@ -236,3 +236,240 @@ async function copyToClipboard(text) {
     }
   }
 }
+
+/**
+ * 使用 Web Crypto API 计算 SHA512 哈希
+ * @param {Uint8Array} data - 输入数据
+ * @returns {Promise<string>} - 十六进制哈希字符串
+ */
+async function sha512(data) {
+  const hashBuffer = await crypto.subtle.digest("SHA-512", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 将字符串转为 Uint8Array
+ * @param {string} str - 字符串
+ * @returns {Uint8Array} - 字节数组
+ */
+function stringToBytes(str) {
+  return new TextEncoder().encode(str);
+}
+
+/**
+ * 将 bigint 转为 big-endian 8 字节数组
+ * @param {bigint} num - 数字
+ * @returns {Uint8Array} - 8 字节数组
+ */
+function bigIntToBigEndianBytes(num) {
+  const bytes = new Uint8Array(8);
+  for (let i = 7; i >= 0; i--) {
+    bytes[i] = Number(num & 0xffn);
+    num = num >> 8n;
+  }
+  return bytes;
+}
+
+/**
+ * 合并多个 Uint8Array
+ * @param  {...Uint8Array} arrays - 字节数组列表
+ * @returns {Uint8Array} - 合并后的字节数组
+ */
+function mergeBytes(...arrays) {
+  const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const arr of arrays) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
+}
+
+/**
+ * 获取 Challenge（盐值）
+ * @returns {Promise<{success: boolean, salt?: bigint, message?: string}>} - Challenge 结果
+ */
+async function getChallenge() {
+  try {
+    const response = await fetch("/api/challenge", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // 手动解析 JSON，避免大整数精度丢失
+    const text = await response.text();
+    // 用正则提取 salt 的原始字符串值
+    const saltMatch = text.match(/"salt"\s*:\s*(\d+)/);
+    if (!saltMatch) {
+      return {
+        success: false,
+        message: "获取 Challenge 失败：无法解析 salt",
+      };
+    }
+    const salt = BigInt(saltMatch[1]);
+
+    const result = JSON.parse(text);
+    if (result.code === 200 && result.data) {
+      return { success: true, salt: salt };
+    } else {
+      return {
+        success: false,
+        message: result.message || "获取 Challenge 失败",
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: "网络错误：" + error.message,
+    };
+  }
+}
+
+/**
+ * 生成随机 nonce
+ * @returns {string} - 随机 nonce
+ */
+function generateRandomNonce() {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * 为公开 API 请求构建带 Challenge 的请求体
+ * @param {Object} baseBody - 基础请求体
+ * @param {number} difficulty - 难度
+ * @returns {Promise<Object>} - 带 Challenge 的请求体
+ */
+async function buildPublicRequest(baseBody, difficulty = 3) {
+  const challengeResult = await getChallenge();
+  if (!challengeResult.success) {
+    throw new Error(challengeResult.message);
+  }
+  const salt = challengeResult.salt; // BigInt 类型
+
+  // 使用秒级时间戳（与后端保持一致）
+  const timestamp = Math.floor(Date.now() / 1000);
+  const path = baseBody.path || "";
+
+  // 使用 Worker 在后台计算 challenge
+  const { nonce, claim } = await computeChallengeInWorker(
+    salt,
+    timestamp,
+    path,
+    difficulty,
+  );
+
+  return {
+    ...baseBody,
+    salt: salt.toString(),
+    timestamp,
+    nonce,
+    claim,
+  };
+}
+
+/**
+ * 在 Web Worker 中计算 Challenge
+ * @param {bigint} salt - Salt 值
+ * @param {number} timestamp - 时间戳
+ * @param {string} path - 路径
+ * @param {number} difficulty - 难度
+ * @returns {Promise<{nonce: string, claim: string}>}
+ */
+function computeChallengeInWorker(salt, timestamp, path, difficulty) {
+  return new Promise((resolve, reject) => {
+    // 创建 Worker
+    const workerCode = `
+      self.onmessage = async function(e) {
+        const { salt, timestamp, path, difficulty } = e.data;
+
+        // SHA512 实现
+        async function sha512(data) {
+          const hashBuffer = await crypto.subtle.digest("SHA-512", data);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+        }
+
+        // 字符串转字节
+        function stringToBytes(str) {
+          return new TextEncoder().encode(str);
+        }
+
+        // BigInt 转大端序字节
+        function bigIntToBigEndianBytes(num) {
+          const bytes = new Uint8Array(8);
+          for (let i = 7; i >= 0; i--) {
+            bytes[i] = Number(num & 0xffn);
+            num = num >> 8n;
+          }
+          return bytes;
+        }
+
+        // 合并字节
+        function mergeBytes(...arrays) {
+          const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+          const result = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const arr of arrays) {
+            result.set(arr, offset);
+            offset += arr.length;
+          }
+          return result;
+        }
+
+        // 生成随机 nonce
+        function generateRandomNonce() {
+          const array = new Uint8Array(16);
+          crypto.getRandomValues(array);
+          return Array.from(array).map((b) => b.toString(16).padStart(2, "0")).join("");
+        }
+
+        const saltHex = salt.toString(16);
+        const pathBytes = stringToBytes(path);
+        const timestampBytes = bigIntToBigEndianBytes(BigInt(timestamp));
+        const saltHexBytes = stringToBytes(saltHex);
+        const targetZeros = "0".repeat(difficulty);
+
+        let nonce = generateRandomNonce();
+        let nonceBytes = stringToBytes(nonce);
+        let combinedData = mergeBytes(nonceBytes, pathBytes, timestampBytes, saltHexBytes);
+        let claim = await sha512(combinedData);
+
+        // 寻找满足难度的 nonce
+        while (!claim.startsWith(targetZeros)) {
+          nonce = generateRandomNonce();
+          nonceBytes = stringToBytes(nonce);
+          combinedData = mergeBytes(nonceBytes, pathBytes, timestampBytes, saltHexBytes);
+          claim = await sha512(combinedData);
+        }
+
+        self.postMessage({ nonce, claim });
+      };
+    `;
+
+    const blob = new Blob([workerCode], { type: "application/javascript" });
+    const worker = new Worker(URL.createObjectURL(blob));
+
+    worker.onmessage = (e) => {
+      resolve(e.data);
+      worker.terminate();
+    };
+
+    worker.onerror = (error) => {
+      reject(error);
+      worker.terminate();
+    };
+
+    // 发送数据给 Worker
+    worker.postMessage({ salt, timestamp, path, difficulty });
+  });
+}

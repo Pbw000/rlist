@@ -27,12 +27,10 @@ pub trait IntoHashContext {
     fn hash_and_to_context(&self) -> Context;
 }
 #[derive(Debug, Clone)]
-pub struct ChallengeTask<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64 = 300> {
+pub struct ChallengeTask<const TIMESTAMP_WINDOW_SECS: u64 = 300> {
     pub challenge: Arc<RotatingChallenge>,
 }
-impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
-    ChallengeTask<DIFFICUITY, TIMESTAMP_WINDOW_SECS>
-{
+impl<const TIMESTAMP_WINDOW_SECS: u64> ChallengeTask<TIMESTAMP_WINDOW_SECS> {
     pub fn new() -> Self {
         Self {
             challenge: Arc::new(RotatingChallenge::new()),
@@ -49,22 +47,24 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
         }
         Ok(())
     }
-    pub async fn validate<T: IntoHashContext>(
+    pub async fn validate<T: IntoHashContext, const DIFFICUITY: usize>(
         &self,
         salt: u64,
         claim: &str,
         payload: &T,
     ) -> Result<(), ChallengeError> {
         if claim.len() < DIFFICUITY + 1 {
+            tracing::debug!("Challenge validation failed: claim length too short");
             return Err(ChallengeError::InvalidFormat);
         }
         if !claim[..DIFFICUITY].chars().all(|c| c == '0') {
+            tracing::debug!("Challenge validation failed: insufficient leading zeros");
             return Err(ChallengeError::ChallengeFailed);
         }
-        let salt_lock = self
-            .challenge
-            .get_salt(salt)
-            .ok_or_else(|| ChallengeError::InvalidSalt)?;
+        let salt_lock = self.challenge.get_salt(salt).ok_or_else(|| {
+            tracing::debug!("Challenge validation failed: invalid salt value");
+            ChallengeError::InvalidSalt
+        })?;
         let mut hasher = payload.hash_and_to_context();
         {
             let salt_hex = salt_lock.read().await;
@@ -73,6 +73,7 @@ impl<const DIFFICUITY: usize, const TIMESTAMP_WINDOW_SECS: u64>
         let result = hasher.finish();
         let result = hex::encode(result);
         if result.as_str() != claim {
+            tracing::debug!("Challenge validation failed: hash mismatch");
             return Err(ChallengeError::ValidationFailed);
         }
         Ok(())

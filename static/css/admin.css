@@ -601,3 +601,13 @@
 .sidebar-overlay.show {
     display: block;
 }
+
+/* ============ 根目录单元格 ============ */
+.root-dir-cell {
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

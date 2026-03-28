@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod config;
 pub mod middleware;
+pub mod path_utils;
 pub mod public;
 pub mod routes;
 pub mod state;

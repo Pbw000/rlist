@@ -8,3 +8,4 @@ pub use storage::file_meta::Meta;
 pub use storage::fused_storage::partial_storage::PartialStorage;
 pub use storage::model::{FileContent, FileList, FileMeta, Storage};
 pub mod utils;
+pub use api::path_utils::{apply_user_root_dir, strip_user_root_dir};

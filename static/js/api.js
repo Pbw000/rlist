@@ -141,6 +141,8 @@ function permissionsToBits(permissions) {
  * @param {string} password - 密码
  * @param {number} difficulty - 难度（前导 0 数量）
  * @param {Object} [permissions] - 权限对象（仅注册时需要）
+ * @param {string|null} [rootDir] - 根目录（仅注册时需要）
+ * @param {boolean} [isLogin=false] - 是否是登录请求（登录时不添加 permissions）
  * @param {number} [batchSize=10000] - 每批计算的 nonce 数量
  * @returns {Promise<{nonce: string, claim: string}>}
  */
@@ -151,6 +153,8 @@ async function findValidNonce(
   password,
   difficulty = 4,
   permissions = null,
+  rootDir = null,
+  isLogin = false,
   batchSize = 10000,
 ) {
   const usernameBytes = stringToBytes(username);
@@ -161,11 +165,16 @@ async function findValidNonce(
   const targetZeros = "0".repeat(difficulty);
 
   // 注册时需要添加 permissions bits，登录时不需要
-  const hasPermissions = permissions !== null && permissions !== undefined;
+  const hasPermissions =
+    !isLogin && permissions !== null && permissions !== undefined;
   const permBits = hasPermissions ? permissionsToBits(permissions) : 0;
   const permBytes = hasPermissions
     ? new Uint8Array([permBits])
     : new Uint8Array(0);
+
+  // 注册时如果有 root_dir，需要添加到 hash 计算中
+  const hasRootDir = !isLogin && rootDir !== null && rootDir !== undefined;
+  const rootDirBytes = hasRootDir ? stringToBytes(rootDir) : new Uint8Array(0);
 
   let nonce = 0;
   while (true) {
@@ -173,14 +182,42 @@ async function findValidNonce(
       const nonceStr = (nonce + i).toString();
       const nonceBytes = stringToBytes(nonceStr);
 
-      const payload = mergeBytes(
-        permBytes,
-        nonceBytes,
-        usernameBytes,
-        passwordBytes,
-        timestampBytes,
-        saltHexBytes,
-      );
+      // 构建 payload：
+      // 登录：nonce | username | password | timestamp | salt
+      // 注册：permissions | nonce | username | password | timestamp | root_dir | salt
+      // 注意：salt 必须放在最后，与后端 validate 函数顺序一致
+      let payload;
+      if (isLogin) {
+        // 登录时的 payload 顺序
+        payload = mergeBytes(
+          nonceBytes,
+          usernameBytes,
+          passwordBytes,
+          timestampBytes,
+          saltHexBytes,
+        );
+      } else if (hasRootDir) {
+        // 注册且有 root_dir
+        payload = mergeBytes(
+          permBytes,
+          nonceBytes,
+          usernameBytes,
+          passwordBytes,
+          timestampBytes,
+          rootDirBytes,
+          saltHexBytes,
+        );
+      } else {
+        // 注册且无 root_dir
+        payload = mergeBytes(
+          permBytes,
+          nonceBytes,
+          usernameBytes,
+          passwordBytes,
+          timestampBytes,
+          saltHexBytes,
+        );
+      }
 
       const hash = await sha512(payload);
       if (hash.startsWith(targetZeros)) {
@@ -329,13 +366,16 @@ async function login(username, password) {
     // 获取当前时间戳（秒）
     const timestamp = Math.floor(Date.now() / 1000);
 
-    // 寻找满足难度要求的 nonce
+    // 寻找满足难度要求的 nonce（登录请求）
     const { nonce, claim } = await findValidNonce(
       salt,
       timestamp,
       username,
       password,
       4,
+      null, // 登录不需要 permissions
+      null, // 登录不需要 rootDir
+      true, // isLogin=true
     );
 
     const response = await fetch(`${API_BASE}/login`, {
@@ -467,9 +507,10 @@ async function listUsers() {
  * @param {string} username - 用户名
  * @param {string} password - 密码
  * @param {Object} permissions - 权限对象
+ * @param {string|null} rootDir - 根目录，null 表示无限制
  * @returns {Promise<Object>} - 添加结果
  */
-async function addUser(username, password, permissions) {
+async function addUser(username, password, permissions, rootDir) {
   try {
     // 获取 challenge
     const challengeResult = await getChallenge();
@@ -481,7 +522,7 @@ async function addUser(username, password, permissions) {
     // 获取当前时间戳（秒）
     const timestamp = Math.floor(Date.now() / 1000);
 
-    // 寻找满足难度要求的 nonce（传入 permissions）
+    // 寻找满足难度要求的 nonce（传入 permissions 和 rootDir）
     const { nonce, claim } = await findValidNonce(
       salt,
       timestamp,
@@ -489,19 +530,27 @@ async function addUser(username, password, permissions) {
       password,
       4,
       permissions,
+      rootDir,
     );
+
+    const body = {
+      username,
+      password,
+      salt: salt.toString(),
+      timestamp,
+      nonce,
+      claim,
+      permissions,
+    };
+
+    // 添加根目录（如果提供）
+    if (rootDir) {
+      body.root_dir = rootDir;
+    }
 
     return await apiRequest("/admin/user/register", {
       method: "POST",
-      body: JSON.stringify({
-        username,
-        password,
-        salt: salt.toString(),
-        timestamp,
-        nonce,
-        claim,
-        permissions,
-      }),
+      body: JSON.stringify(body),
     });
   } catch (error) {
     return {
@@ -537,6 +586,22 @@ async function updatePermissions(username, permissions) {
     body: JSON.stringify({
       user_name: username,
       permissions: permissions,
+    }),
+  });
+}
+
+/**
+ * 更新用户根目录
+ * @param {string} username - 用户名
+ * @param {string|null} rootDir - 根目录路径，null 表示无限制
+ * @returns {Promise<Object>} - 更新结果
+ */
+async function updateRootDir(username, rootDir) {
+  return await apiRequest("/admin/user/root-dir", {
+    method: "POST",
+    body: JSON.stringify({
+      username: username,
+      root_dir: rootDir,
     }),
   });
 }

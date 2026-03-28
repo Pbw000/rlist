@@ -13,8 +13,8 @@ use crate::auth::middleware::{AuthMiddlewareState, auth_permission_middleware};
 
 pub fn create_routes(state: AppState) -> Router<AppState> {
     let public_auth_routes = Router::new()
-        .route("/login", post(public::login))
-        .route("/challenge", get(public::get_challenge));
+        .route("/login", post(user::login))
+        .route("/challenge", get(user::get_challenge));
     let protected_auth_routes = Router::new()
         .route("/me", get(user::get_current_user))
         .layer(middleware::from_fn_with_state(
@@ -34,8 +34,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .route("/download", get(public::public_download_file));
 
     let list_routes = Router::new()
-        .route("/fs/list", post(public::list_files))
-        .route("/fs/dir", get(public::get_file_info))
+        .route("/fs/list", post(user::list_files))
+        .route("/fs/dir", get(user::get_file_info))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -56,9 +56,10 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         ));
 
     let upload_routes = Router::new()
-        .route("/fs/upload", put(public::upload_file))
-        .route("/fs/upload-info", post(public::get_upload_info))
-        .route("/fs/upload/complete", post(public::complete_upload))
+        .route("/fs/upload", put(user::upload_file))
+        .route("/fs/upload-info", post(user::get_upload_info))
+        .route("/fs/upload/complete", post(user::complete_upload))
+        .route("/fs/refresh-cache", post(user::refresh_cache))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -67,39 +68,40 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             auth_permission_middleware,
         ));
 
-    let mkdir_routes = Router::new().route("/fs/mkdir", post(public::mkdir)).layer(
-        middleware::from_fn_with_state(
-            AuthMiddlewareState {
-                auth_config: state.inner.auth_config.clone(),
-                required_permission: Permission::CreateDir,
-            },
-            auth_permission_middleware,
-        ),
-    );
+    let mkdir_routes =
+        Router::new()
+            .route("/fs/mkdir", post(user::mkdir))
+            .layer(middleware::from_fn_with_state(
+                AuthMiddlewareState {
+                    auth_config: state.inner.auth_config.clone(),
+                    required_permission: Permission::CreateDir,
+                },
+                auth_permission_middleware,
+            ));
 
-    let remove_routes = Router::new()
-        .route("/fs/remove", post(public::remove))
-        .layer(middleware::from_fn_with_state(
+    let remove_routes = Router::new().route("/fs/remove", post(user::remove)).layer(
+        middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
                 required_permission: Permission::Delete,
             },
             auth_permission_middleware,
-        ));
+        ),
+    );
 
-    let rename_routes = Router::new()
-        .route("/fs/rename", post(public::rename))
-        .layer(middleware::from_fn_with_state(
+    let rename_routes = Router::new().route("/fs/rename", post(user::rename)).layer(
+        middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
                 required_permission: Permission::Upload,
             },
             auth_permission_middleware,
-        ));
+        ),
+    );
 
     let copy_routes =
         Router::new()
-            .route("/fs/copy", post(public::copy))
+            .route("/fs/copy", post(user::copy))
             .layer(middleware::from_fn_with_state(
                 AuthMiddlewareState {
                     auth_config: state.inner.auth_config.clone(),
@@ -109,7 +111,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             ));
 
     let move_routes = Router::new()
-        .route("/fs/move", post(public::move_file))
+        .route("/fs/move", post(user::move_file))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {
                 auth_config: state.inner.auth_config.clone(),
@@ -118,8 +120,8 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             auth_permission_middleware,
         ));
     let public_download_routes = Router::new()
-        .route("/public/fs/get", get(public::get_file))
-        .route("/public/fs/download", get(public::download_file));
+        .route("/public/fs/get", get(user::get_file))
+        .route("/public/fs/download", get(user::download_file));
     // 合并所有文件系统路由
     let fs_routes = list_routes
         .merge(download_routes)
@@ -140,6 +142,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
             "/admin/user/permissions",
             post(admin::update_user_permissions),
         )
+        .route("/admin/user/root-dir", post(admin::update_user_root_dir))
         // 存储管理路由
         .route("/admin/storage/list", get(user::list_storages))
         .route("/admin/storage/drivers", get(admin::get_storage_drivers))
