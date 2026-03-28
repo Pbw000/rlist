@@ -688,7 +688,7 @@ impl Storage for WopanStorage {
             let parent_id = self
                 .get_file_id_by_path(parent)
                 .await
-                .unwrap_or_else(|| "root".to_string());
+                .ok_or_else(|| WopanError::NotFound(format!("父目录不存在：{}", parent)))?;
             (parent_id, name)
         } else {
             ("root".to_string(), path_str)

@@ -414,10 +414,10 @@ impl Storage for McloudStorage {
                 let parent_id = self
                     .get_file_id_by_path(parent)
                     .await
-                    .unwrap_or_else(|| "/".to_string());
+                    .ok_or_else(|| McloudError::NotFound(format!("父目录不存在：{}", parent)))?;
                 (parent_id, name)
             } else {
-                ("/".to_string(), path_trimmed)
+                ("root".to_string(), path_trimmed)
             };
 
         let hash = params.hash;
