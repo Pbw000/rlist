@@ -20,6 +20,12 @@ impl LocalStorage {
     }
     fn normalize_path(&self, path: &str) -> Result<PathBuf, StorageError> {
         let trimmed_path = path.trim_start_matches('/');
+
+        // 防止路径遍历攻击：检查是否包含 .. 组件
+        if trimmed_path.contains("..") {
+            return Err(StorageError::NotFound("路径遍历被阻止".to_string()));
+        }
+
         let full_path = self.root.join(trimmed_path);
 
         let canonical_root = self
@@ -27,22 +33,36 @@ impl LocalStorage {
             .canonicalize()
             .map_err(|e| StorageError::NotFound(e.to_string()))?;
 
-        let canonical_path = if full_path.exists() {
-            let path = full_path
-                .canonicalize()
-                .map_err(|e| StorageError::NotFound(e.to_string()))?;
-            path
+        // 检查路径遍历攻击
+        if let Ok(canonical_full) = full_path.canonicalize() {
+            // 路径存在，验证是否在 root 内
+            if !canonical_full.starts_with(&canonical_root) {
+                return Err(StorageError::NotFound("路径遍历被阻止".to_string()));
+            }
+            Ok(canonical_full)
         } else {
-            if let Some(parent) = full_path.parent().filter(|p| p.exists()) {
-                if let Ok(canonical_parent) = parent.canonicalize() {
-                    if !canonical_parent.starts_with(&canonical_root) {
-                        return Err(StorageError::NotFound("路径遍历被阻止".to_string()));
+            // 路径不存在，返回 full_path（由调用者决定如何处理）
+            // 先检查父目录是否存在且在 root 内
+            if let Some(parent) = full_path.parent() {
+                if parent.exists() {
+                    if let Ok(canonical_parent) = parent.canonicalize() {
+                        if !canonical_parent.starts_with(&canonical_root) {
+                            return Err(StorageError::NotFound("路径遍历被阻止".to_string()));
+                        }
                     }
                 }
             }
-            full_path
-        };
-        Ok(canonical_path)
+            Ok(full_path)
+        }
+    }
+
+    /// 规范化路径并检查是否存在（用于 list_files、get_meta 等需要路径存在的操作）
+    fn normalize_existing_path(&self, path: &str) -> Result<PathBuf, StorageError> {
+        let normalized = self.normalize_path(path)?;
+        if !normalized.exists() {
+            return Err(StorageError::NotFound(format!("路径不存在：{}", path)));
+        }
+        Ok(normalized)
     }
     fn meta_from_path(&self, path: &PathBuf) -> Result<FileMeta, StorageError> {
         use chrono::DateTime;
@@ -147,7 +167,7 @@ impl Storage for LocalStorage {
         hasher.finish()
     }
     async fn handle_path(&self, path: &str) -> Result<FileMeta, Self::Error> {
-        let normalized = self.normalize_path(path)?;
+        let normalized = self.normalize_existing_path(path)?;
         self.meta_from_path(&normalized)
     }
 
@@ -158,7 +178,7 @@ impl Storage for LocalStorage {
         cursor: Option<usize>,
     ) -> impl Future<Output = Result<FileList, Self::Error>> + Send {
         async move {
-            let dir_path = self.normalize_path(path)?;
+            let dir_path = self.normalize_existing_path(path)?;
 
             let entries =
                 std::fs::read_dir(&dir_path).map_err(|e| StorageError::NotFound(e.to_string()))?;
@@ -192,7 +212,7 @@ impl Storage for LocalStorage {
 
     fn get_meta(&self, path: &str) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
         async move {
-            let normalized = self.normalize_path(path)?;
+            let normalized = self.normalize_existing_path(path)?;
             self.meta_from_path(&normalized)
         }
     }
@@ -204,7 +224,7 @@ impl Storage for LocalStorage {
     }
 
     async fn download_file(&self, path: &str) -> Result<Box<dyn FileContent>, Self::Error> {
-        let normalized = self.normalize_path(path)?;
+        let normalized = self.normalize_existing_path(path)?;
         let metadata =
             std::fs::metadata(&normalized).map_err(|e| StorageError::NotFound(e.to_string()))?;
 

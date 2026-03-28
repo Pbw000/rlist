@@ -492,7 +492,7 @@ impl Storage for WopanStorage {
             let parent_id = self
                 .get_file_id_by_path(parent)
                 .await
-                .unwrap_or_else(|| "root".to_string());
+                .ok_or_else(|| WopanError::NotFound(format!("父目录不存在：{}", parent)))?;
             (parent_id, name)
         } else {
             ("root".to_string(), path_trimmed)
@@ -535,7 +535,7 @@ impl Storage for WopanStorage {
         let dest_id = self
             .get_file_id_by_path(dest_path)
             .await
-            .unwrap_or_else(|| "root".to_string());
+            .ok_or_else(|| WopanError::NotFound(format!("目标路径不存在：{}", dest_path)))?;
         self.copy_file(vec![source_meta], &dest_id).await
     }
 
@@ -551,7 +551,7 @@ impl Storage for WopanStorage {
         let dest_id = self
             .get_file_id_by_path(dest_path)
             .await
-            .unwrap_or_else(|| "root".to_string());
+            .ok_or_else(|| WopanError::NotFound(format!("目标路径不存在：{}", dest_path)))?;
         self.move_file(vec![source_meta], &dest_id).await
     }
 
@@ -573,10 +573,10 @@ impl Storage for WopanStorage {
             let parent_id = self
                 .get_file_id_by_path(parent)
                 .await
-                .unwrap_or_else(|| "/".to_string());
+                .ok_or_else(|| WopanError::NotFound(format!("父目录不存在：{}", parent)))?;
             (parent_id, name)
         } else {
-            ("/".to_string(), path_str)
+            ("root".to_string(), path_str)
         };
         let _hash = param.hash;
 
