@@ -235,6 +235,9 @@ pub async fn list_files(
     root_dir: Option<Extension<String>>,
     Json(payload): Json<ListQuery>,
 ) -> impl IntoResponse {
+    // 触发刷新通知
+    state.trigger_refresh();
+
     let path = payload.path.as_deref().unwrap_or("/");
     let full_path = apply_root_dir(path, root_dir.as_ref());
     let registry_guard = state.inner.private_registry.read().await;

@@ -86,9 +86,6 @@ async fn run_server(
     let pub_registry = StorageRegistry::from_auth_data(config.public_registry)?;
     let pri_registry = StorageRegistry::from_auth_data(config.private_registry)?;
     let state = AppState::new(auth_config, pri_registry, pub_registry);
-
-    state.build_cache("/").await?;
-
     let addr = format!("localhost:{}", port);
     tracing::info!("Starting server on {}", addr);
     start_server(state, &addr).await?;

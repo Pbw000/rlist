@@ -1,9 +1,11 @@
 //! 应用状态管理
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use serde::Serialize;
 use tokio::sync::RwLock;
+use tracing::info;
 
 use crate::auth::auth::AuthConfig;
 use crate::auth::challenge::ChallengeTask;
@@ -32,6 +34,10 @@ pub struct AppStateInner {
     pub auth_config: Arc<AuthConfig>,
     pub public_registry: RwLock<StorageRegistry>,
     pub challenge: ChallengeTask<300>,
+    /// 后台刷新任务通知器
+    pub refresh_notifier: tokio::sync::Notify,
+    /// 服务启动时间（用于计算 last_visit）
+    pub startup_time: Instant,
 }
 
 impl AppState {
@@ -43,15 +49,24 @@ impl AppState {
     ) -> Self {
         let challenge = ChallengeTask::new();
         challenge.start_rotate(30);
-        Self {
+
+        let state = Self {
             inner: Arc::new(AppStateInner {
                 private_registry: RwLock::new(private_registry),
                 auth_config,
                 public_registry: RwLock::new(public_registry),
                 challenge,
+                refresh_notifier: tokio::sync::Notify::new(),
+                startup_time: Instant::now(),
             }),
-        }
+        };
+
+        // 启动后台刷新任务
+        state.start_refresh_task();
+
+        state
     }
+
     pub async fn list_public_storages(&self) -> Vec<DriverInfo> {
         self.inner
             .public_registry
@@ -116,15 +131,10 @@ impl AppState {
     pub async fn get_registry(&self) -> tokio::sync::RwLockReadGuard<'_, StorageRegistry> {
         self.inner.private_registry.read().await
     }
+    //public registry only
     pub async fn build_cache(&self, path: &str) -> Result<(), RlistError> {
         self.inner
             .private_registry
-            .write()
-            .await
-            .build_cache(path)
-            .await?;
-        self.inner
-            .public_registry
             .write()
             .await
             .build_cache(path)
@@ -159,5 +169,68 @@ impl AppState {
     /// 获取公开存储引擎注册表
     pub async fn get_public_registry(&self) -> tokio::sync::RwLockReadGuard<'_, StorageRegistry> {
         self.inner.public_registry.read().await
+    }
+
+    fn start_refresh_task(&self) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let mut cleanup_interval =
+                tokio::time::interval(std::time::Duration::from_secs(15 * 60)); // 15 分钟
+            loop {
+                if let Err(e) = state
+                    .inner
+                    .private_registry
+                    .read()
+                    .await
+                    .build_cache("/")
+                    .await
+                {
+                    tracing::error!("Failed to build private registry cache: {}", e);
+                }
+                if let Err(e) = state
+                    .inner
+                    .public_registry
+                    .read()
+                    .await
+                    .build_cache("/")
+                    .await
+                {
+                    tracing::error!("Failed to build public registry cache: {}", e);
+                }
+                state.clean_expired_users().await;
+                cleanup_interval.tick().await;
+                state.inner.refresh_notifier.notified().await;
+            }
+        });
+    }
+    pub fn trigger_refresh(&self) {
+        self.inner.refresh_notifier.notify_one();
+    }
+
+    /// 清理超时用户信息
+    async fn clean_expired_users(&self) {
+        // 30 分钟未访问视为超时
+        let timeout_secs = 30 * 60;
+        let now = self.inner.startup_time.elapsed().as_secs();
+
+        let mut users = self.inner.auth_config.users.write().await;
+        let mut removed_count = 0;
+
+        users.retain(|_id, user_info| {
+            if now - user_info.last_visit_secs > timeout_secs {
+                info!(
+                    "清理超时用户：{} (last_visit_secs: {})",
+                    user_info.user_name, user_info.last_visit_secs
+                );
+                removed_count += 1;
+                false
+            } else {
+                true
+            }
+        });
+
+        if removed_count > 0 {
+            info!("共清理 {} 个超时用户", removed_count);
+        }
     }
 }

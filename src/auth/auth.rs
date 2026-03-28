@@ -6,6 +6,7 @@ use axum::{
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use tokio::sync::RwLock;
 
 use std::{collections::HashMap, sync::Arc};
@@ -20,6 +21,8 @@ pub struct AuthConfig<const SECRET_KEY_LEN: usize = 128, const USERS_SALT_LEN: u
     pub users: Arc<RwLock<HashMap<u64, AuthInfo>>>,
     pub users_salt: [u8; USERS_SALT_LEN],
     pub credentials_store: Arc<UserCredentialsStore>,
+    /// 服务启动时间（用于计算 last_visit）
+    pub startup_time: Instant,
 }
 
 impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
@@ -48,6 +51,7 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
             users: Arc::new(RwLock::new(users_map)),
             users_salt: salt,
             credentials_store: Arc::new(credentials_store),
+            startup_time: Instant::now(),
         }
     }
     pub fn username_to_id(&self, user_name: &str) -> u64 {
@@ -80,6 +84,7 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
             users: Arc::new(RwLock::new(users_map)),
             users_salt: salt,
             credentials_store: Arc::new(credentials_store),
+            startup_time: Instant::now(),
         }
     }
 
@@ -108,10 +113,13 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
 
         let user_config = self.credentials_store.get_user_config(&username).await?;
 
+        let last_visit_secs = self.startup_time.elapsed().as_secs();
+
         let auth_info = AuthInfo {
             user_name: username,
             permission: user_config.permissions,
             root_dir: user_config.root_dir,
+            last_visit_secs,
         };
 
         {
@@ -136,11 +144,15 @@ impl<const SECRET_KEY_LEN: usize, const USERS_SALT_LEN: usize>
         // 获取用户 ID
         let user_id = self.username_to_id(&username);
 
+        // 获取相对于启动时间的秒数
+        let last_visit_secs = self.startup_time.elapsed().as_secs();
+
         // 更新或创建用户信息
         let auth_info = AuthInfo {
             user_name: username,
             permission: user_config.permissions,
             root_dir: user_config.root_dir,
+            last_visit_secs,
         };
 
         {
@@ -172,11 +184,24 @@ pub struct AuthClaim {
     pub i: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct AuthInfo {
     pub user_name: String,
     pub permission: UserPermissions,
     pub root_dir: Option<String>,
+    /// 相对于服务启动时间的秒数（通过 AppStateInner::startup_time 计算）
+    pub last_visit_secs: u64,
+}
+
+impl Clone for AuthInfo {
+    fn clone(&self) -> Self {
+        Self {
+            user_name: self.user_name.clone(),
+            permission: self.permission,
+            root_dir: self.root_dir.clone(),
+            last_visit_secs: self.last_visit_secs,
+        }
+    }
 }
 
 /// 权限类型枚举
@@ -254,13 +279,24 @@ pub async fn jwt_middleware(
             return Err(StatusCode::BAD_GATEWAY);
         }
     };
-    if let Some(user_info) = config
-        .users
-        .read()
-        .await
-        .get(&claim.i)
-        .and_then(|o| Some(o.to_owned()))
-    {
+    // 获取用户信息
+    let user_info = {
+        let users_guard = config.users.read().await;
+        users_guard.get(&claim.i).cloned()
+    };
+
+    if let Some(mut user_info) = user_info {
+        // 更新 last_visit_secs 为当前经过的时间
+        user_info.last_visit_secs = config.startup_time.elapsed().as_secs();
+
+        // 同步回用户列表
+        {
+            let mut users_guard = config.users.write().await;
+            if let Some(entry) = users_guard.get_mut(&claim.i) {
+                entry.last_visit_secs = user_info.last_visit_secs;
+            }
+        }
+
         let mut request = Request::from_parts(parts, body);
         request.extensions_mut().insert(user_info);
         Ok(next.run(request).await)
