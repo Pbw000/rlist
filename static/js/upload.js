@@ -106,7 +106,7 @@ class UploadManager {
         body: JSON.stringify({
           path: path,
           size: file.size,
-          hash: hash,
+          hash: { sha256: hash },
         }),
       });
 
@@ -244,7 +244,7 @@ class UploadManager {
     const { file } = task;
     const timeoutMs = Math.max(10 * 60 * 1000, file.size * 2);
 
-    const url = `${this.apiBase}/fs/upload?path=${encodeURIComponent(path)}&size=${file.size}&hash=${hash}`;
+    const url = `${this.apiBase}/fs/upload?path=${encodeURIComponent(path)}&size=${file.size}&hash=${JSON.stringify({ sha256: hash })}`;
 
     try {
       await this.uploadWithXhr(
@@ -364,7 +364,7 @@ class UploadManager {
         path: originalPath || "",
         upload_id: uploadId,
         file_id: fileId,
-        content_hash: contentHash,
+        content_hash: JSON.stringify({ sha256: contentHash }),
       });
 
       const fullUrl = `${window.location.origin}${url.pathname}?${completeParams.toString()}`;

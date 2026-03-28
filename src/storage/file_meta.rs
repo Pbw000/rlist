@@ -5,6 +5,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::storage::model::Hash;
+
 /// 文件/目录元数据 - 最小实现
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Meta {
@@ -86,5 +88,5 @@ impl Meta {
 pub struct DownloadableMeta {
     pub download_url: String,
     pub size: u64,
-    pub hash: Option<String>,
+    pub hash: Hash,
 }

@@ -11,7 +11,6 @@ use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
 use crate::storage::radix_tree::RadixTree;
 use crate::storage::url_reader::UrlReader;
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
-use ring::digest::{Context, SHA256};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -384,14 +383,8 @@ impl Storage for McloudStorage {
             "/".to_string()
         };
 
-        // dbg!(&param);
         // 1. 创建文件记录
-        let hash = param.hash.unwrap_or_else(|| {
-            let mut hasher = Context::new(&SHA256);
-            let bytes: [u8; 12] = rand::random();
-            hasher.update(&bytes);
-            hex::encode(hasher.finish())
-        });
+        let hash = param.hash;
         let create_result = self
             .create_upload_record(&parent_file_id, file_name, param.size, &hash)
             .await?;
@@ -440,12 +433,7 @@ impl Storage for McloudStorage {
                 "/".to_string()
             };
 
-            let hash = params.hash.unwrap_or_else(|| {
-                let mut hasher = Context::new(&SHA256);
-                let bytes: [u8; 12] = rand::random();
-                hasher.update(&bytes);
-                hex::encode(hasher.finish())
-            });
+            let hash = params.hash;
             let create_result = self
                 .create_upload_record(&parent_file_id, file_name, params.size, &hash)
                 .await?;
@@ -495,7 +483,7 @@ impl Storage for McloudStorage {
         path: &str,
         upload_id: &str,
         file_id: &str,
-        content_hash: &str,
+        content_hash: &crate::storage::model::Hash,
     ) -> Result<Option<crate::storage::model::FileMeta>, Self::Error> {
         // 调用 /hcy/file/complete API
         #[derive(Serialize)]
@@ -506,11 +494,18 @@ impl Storage for McloudStorage {
             contentHashAlgorithm: &'static str,
         }
 
+        // 从 Hash 枚举中提取算法和哈希值
+        let (hash_algo, hash_value) = match content_hash {
+            crate::storage::model::Hash::Sha256(h) => ("SHA256", h.as_str()),
+            crate::storage::model::Hash::Md5(h) => ("MD5", h.as_str()),
+            crate::storage::model::Hash::Empty => ("SHA256", ""),
+        };
+
         let request = CompleteRequest {
             fileId: file_id.to_string(),
             uploadId: upload_id.to_string(),
-            contentHash: content_hash.to_string(),
-            contentHashAlgorithm: "SHA256",
+            contentHash: hash_value.to_string(),
+            contentHashAlgorithm: hash_algo,
         };
 
         #[derive(Deserialize)]
@@ -764,7 +759,7 @@ impl McloudStorage {
         Ok(DownloadableMeta {
             download_url: download_meta.url,
             size: download_meta.size,
-            hash: Some(download_meta.contentHash),
+            hash: crate::storage::model::Hash::Sha256(download_meta.contentHash),
         })
     }
 
@@ -1040,19 +1035,19 @@ impl McloudStorage {
         parent_file_id: &str,
         file_name: &str,
         file_size: u64,
-        content_hash: &str,
+        content_hash: &crate::storage::model::Hash,
     ) -> Result<UploadCreateInfo, McloudError> {
         #[derive(Serialize)]
-        struct CreateUploadRequest {
+        struct CreateUploadRequest<'a> {
             fileRenameMode: &'static str,
             contentType: &'static str,
             r#type: &'static str,
-            name: String,
+            name: &'a str,
             size: u64,
             contentHashAlgorithm: &'static str,
-            contentHash: String,
+            contentHash: &'a str,
             partInfos: Vec<PartInfo>,
-            parentFileId: String,
+            parentFileId: &'a str,
         }
 
         #[derive(Serialize)]
@@ -1067,20 +1062,27 @@ impl McloudStorage {
             partOffset: u64,
         }
 
+        // 从 Hash 枚举中提取算法和哈希值
+        let (hash_algo, hash_value) = match content_hash {
+            crate::storage::model::Hash::Sha256(h) => ("SHA256", h.as_str()),
+            crate::storage::model::Hash::Md5(h) => ("MD5", h.as_str()),
+            crate::storage::model::Hash::Empty => ("SHA256", ""),
+        };
+
         let request = CreateUploadRequest {
             fileRenameMode: "auto_rename",
             contentType: "application/octet-stream",
             r#type: "file",
-            name: file_name.to_string(),
+            name: file_name,
             size: file_size,
-            contentHashAlgorithm: "SHA256",
-            contentHash: content_hash.to_string(),
+            contentHashAlgorithm: hash_algo,
+            contentHash: hash_value,
             partInfos: vec![PartInfo {
                 parallelHashCtx: ParallelHashCtx { partOffset: 0 },
                 partNumber: 1,
                 partSize: file_size,
             }],
-            parentFileId: parent_file_id.to_string(),
+            parentFileId: parent_file_id,
         };
 
         #[derive(Deserialize, Debug)]

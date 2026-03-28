@@ -111,8 +111,8 @@ impl FileContent for LocalFileReader {
         self.size
     }
 
-    fn hash(&self) -> Option<String> {
-        Some(self.hash.clone())
+    fn hash(&self) -> crate::storage::model::Hash {
+        crate::storage::model::Hash::Sha256(self.hash.clone())
     }
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]

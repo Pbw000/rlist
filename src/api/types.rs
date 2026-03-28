@@ -106,7 +106,7 @@ pub struct CompleteUploadParams {
     pub path: String,
     pub upload_id: String,
     pub file_id: String,
-    pub content_hash: String,
+    pub content_hash: crate::storage::model::Hash,
 }
 
 // ==================== 响应类型 ====================
@@ -212,7 +212,7 @@ pub struct FileResponse {
     pub name: String,
     pub url: String,
     pub size: u64,
-    pub hash: Option<String>,
+    pub hash: crate::storage::model::Hash,
 }
 
 /// 存储信息响应

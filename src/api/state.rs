@@ -137,7 +137,7 @@ impl AppState {
         path: &str,
         upload_id: &str,
         file_id: &str,
-        content_hash: &str,
+        content_hash: &crate::storage::model::Hash,
     ) -> Result<Option<crate::storage::model::FileMeta>, RlistError> {
         // path 是绝对路径（包含存储前缀），直接使用
         let registry = self.inner.private_registry.read().await;

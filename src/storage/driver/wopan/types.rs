@@ -368,6 +368,25 @@ pub struct Upload2CBody {
     pub client_id: String,
     #[serde(rename = "zoneUrl")]
     pub zone_url: String,
+    /// 以下为实际上传接口所需的额外字段
+    #[serde(rename = "uniqueId", skip_serializing)]
+    pub unique_id: Option<String>,
+    #[serde(rename = "accessToken", skip_serializing)]
+    pub access_token: Option<String>,
+    #[serde(rename = "psToken", skip_serializing)]
+    pub ps_token: Option<String>,
+    #[serde(rename = "totalPart")]
+    pub total_part: Option<String>,
+    #[serde(rename = "partSize")]
+    pub part_size: Option<String>,
+    #[serde(rename = "partIndex")]
+    pub part_index: Option<String>,
+    #[serde(rename = "channel")]
+    pub channel: Option<String>,
+    #[serde(rename = "directoryId")]
+    pub directory_id: Option<String>,
+    #[serde(rename = "fileInfo", skip_serializing)]
+    pub file_info: Option<String>,
 }
 
 /// 家庭用户查询请求

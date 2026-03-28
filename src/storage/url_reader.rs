@@ -23,7 +23,7 @@ pub struct UrlReader {
     body: Option<Vec<u8>>,
     method: reqwest::Method,
     size: Option<u64>,
-    hash: Option<String>,
+    hash: crate::storage::model::Hash,
     offset: u64,
     buffer: Vec<u8>,
     buffer_pos: usize,
@@ -44,7 +44,7 @@ impl UrlReader {
         body: Option<Vec<u8>>,
         method: reqwest::Method,
         size: Option<u64>,
-        hash: Option<String>,
+        hash: crate::storage::model::Hash,
     ) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
@@ -73,8 +73,8 @@ impl UrlReader {
         self
     }
 
-    pub fn with_hash(mut self, hash: String) -> Self {
-        self.hash = Some(hash);
+    pub fn with_hash(mut self, hash: crate::storage::model::Hash) -> Self {
+        self.hash = hash;
         self
     }
 
@@ -229,7 +229,7 @@ impl FileContent for UrlReader {
         self.size
     }
 
-    fn hash(&self) -> Option<String> {
+    fn hash(&self) -> crate::storage::model::Hash {
         self.hash.clone()
     }
 }
@@ -241,7 +241,7 @@ pub struct UrlReaderBuilder {
     body: Option<Vec<u8>>,
     method: reqwest::Method,
     size: Option<u64>,
-    hash: Option<String>,
+    hash: crate::storage::model::Hash,
 }
 
 impl UrlReaderBuilder {
@@ -252,7 +252,7 @@ impl UrlReaderBuilder {
             body: None,
             method: reqwest::Method::GET,
             size: None,
-            hash: None,
+            hash: crate::storage::model::Hash::Empty,
         }
     }
 
@@ -281,10 +281,8 @@ impl UrlReaderBuilder {
         self
     }
 
-    pub fn hash(mut self, hash: Option<impl Into<String>>) -> Self {
-        if let Some(hash) = hash {
-            self.hash = Some(hash.into());
-        }
+    pub fn hash(mut self, hash: crate::storage::model::Hash) -> Self {
+        self.hash = hash;
         self
     }
 

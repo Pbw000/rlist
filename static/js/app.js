@@ -1899,9 +1899,19 @@ function hideUploadProgressModal() {
  */
 function showCopyMoveModal(path) {
   try {
+    // 检查是否有有效的路径
+    if (!path || path.trim() === "") {
+      showToast(
+        "No files matching the criteria were found or all were skipped",
+        "error",
+      );
+      return;
+    }
+
     selectedPathForAction = path;
-    document.getElementById("copyMoveModal").dataset.path = path;
-    document.getElementById("copyMoveModal").style.display = "flex";
+    const modal = document.getElementById("copyMoveModal");
+    modal.dataset.path = path;
+    modal.style.display = "flex";
     document.getElementById("targetPathInput").value = "";
     document.getElementById("pathSelectorStatus").textContent =
       "点击输入框选择路径";
@@ -2159,6 +2169,31 @@ async function confirmCopyMove() {
       return;
     }
 
+    // 检查是否有有效的源路径
+    if (!selectedPathForAction || selectedPathForAction.trim() === "") {
+      showToast(
+        "No files matching the criteria were found or all were skipped",
+        "error",
+      );
+      hideCopyMoveModal();
+      return;
+    }
+
+    // 显示加载状态
+    const confirmBtn = document.getElementById("confirmDeleteBtn");
+    const modalFooter = document.querySelector("#copyMoveModal .modal-footer");
+    const originalFooterHtml = modalFooter.innerHTML;
+
+    // 禁用按钮并显示 loading
+    modalFooter.innerHTML = `
+      <button class="btn btn-secondary" onclick="hideCopyMoveModal()">
+        取消
+      </button>
+      <button class="btn btn-primary" disabled>
+        <i class="ti ti-loader ti-spin"></i> 处理中...
+      </button>
+    `;
+
     // 如果目标路径是目录（以/结尾或是根目录），则自动添加源文件/文件夹名
     const srcName =
       selectedPathForAction.split("/").pop() || selectedPathForAction;
@@ -2178,6 +2213,10 @@ async function confirmCopyMove() {
       targetPath,
       type,
     );
+
+    // 恢复按钮状态
+    modalFooter.innerHTML = originalFooterHtml;
+
     if (result.success) {
       hideCopyMoveModal();
       showToast(`${type === "copy" ? "复制" : "移动"}成功`, "success");
@@ -2189,6 +2228,16 @@ async function confirmCopyMove() {
     }
   } catch (error) {
     console.error("复制/移动失败:", error);
+    // 恢复按钮状态
+    const modalFooter = document.querySelector("#copyMoveModal .modal-footer");
+    modalFooter.innerHTML = `
+      <button class="btn btn-secondary" onclick="hideCopyMoveModal()">
+        取消
+      </button>
+      <button class="btn btn-primary" onclick="confirmCopyMove()">
+        确定
+      </button>
+    `;
     showToast("操作失败：" + error.message, "error");
   }
 }

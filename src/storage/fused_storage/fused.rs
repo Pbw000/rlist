@@ -538,7 +538,7 @@ where
         path: &str,
         upload_id: &str,
         file_id: &str,
-        content_hash: &str,
+        content_hash: &crate::storage::model::Hash,
     ) -> Result<Option<crate::storage::model::FileMeta>, Self::Error> {
         match self.get_driver(path) {
             Some((driver, remaining_path)) => driver

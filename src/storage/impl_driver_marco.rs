@@ -377,7 +377,7 @@ macro_rules! impl_storage_enum {
                     path: &str,
                     upload_id: &str,
                     file_id: &str,
-                    content_hash: &str,
+                    content_hash: &crate::storage::model::Hash,
                 ) -> Result<Option<$crate::FileMeta>, Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {

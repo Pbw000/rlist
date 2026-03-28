@@ -865,6 +865,12 @@ body {
     }
 }
 
+/* 旋转动画类（用于图标） */
+.ti-spin {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
 .loading-text {
     margin-top: 16px;
     font-size: 14px;

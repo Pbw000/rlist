@@ -177,6 +177,39 @@ async function calculateFileHash(file) {
 }
 
 /**
+ * 解析后端返回的 Hash 枚举格式
+ * @param {any} hashData - 后端返回的 hash 数据 ({ sha256: "..." } | { md5: "..." } | "empty")
+ * @returns {{ algo: string, value: string } | null} - 返回算法和值，如果没有则返回 null
+ */
+function parseHash(hashData) {
+  if (!hashData || hashData === "empty") {
+    return null;
+  }
+  if (typeof hashData === "object") {
+    if (hashData.sha256) {
+      return { algo: "sha256", value: hashData.sha256 };
+    }
+    if (hashData.md5) {
+      return { algo: "md5", value: hashData.md5 };
+    }
+  }
+  return null;
+}
+
+/**
+ * 格式化 Hash 为后端发送的格式
+ * @param {string} hashValue - hash 值
+ * @param {string} [algo="sha256"] - 算法类型
+ * @returns {Object} - { sha256: "..." } 或 { md5: "..." }
+ */
+function formatHash(hashValue, algo = "sha256") {
+  if (!hashValue) {
+    return "empty";
+  }
+  return { [algo]: hashValue };
+}
+
+/**
  * 复制到剪贴板
  * @param {string} text - 要复制的文本
  * @returns {Promise<boolean>} - 是否成功

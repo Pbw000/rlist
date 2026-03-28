@@ -48,10 +48,41 @@ impl FileList {
     }
 }
 
+/// 哈希算法类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Hash {
+    /// SHA-256 哈希
+    Sha256(String),
+    /// MD5 哈希
+    Md5(String),
+    /// 空哈希（无哈希值）
+    Empty,
+}
+
+impl Hash {
+    /// 获取哈希值字符串
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Hash::Sha256(s) | Hash::Md5(s) => Some(s),
+            Hash::Empty => None,
+        }
+    }
+
+    /// 从字符串和算法类型创建 Hash
+    pub fn from_str(hash: &str, algo: &str) -> Self {
+        match algo.to_lowercase().as_str() {
+            "sha256" => Hash::Sha256(hash.to_string()),
+            "md5" => Hash::Md5(hash.to_string()),
+            _ => Hash::Empty,
+        }
+    }
+}
+
 /// 文件内容读取器 trait
 pub trait FileContent: AsyncRead + AsyncSeek + Send + Sync + Unpin {
     fn size(&self) -> Option<u64>;
-    fn hash(&self) -> Option<String>;
+    fn hash(&self) -> Hash;
 }
 
 /// 上传模式
@@ -71,8 +102,8 @@ pub struct UploadInfoParams {
     pub path: String,
     /// 文件大小
     pub size: u64,
-    ///SHA-256
-    pub hash: Option<String>,
+    /// 文件哈希
+    pub hash: Hash,
 }
 
 /// 上传信息（用于 Direct 模式）
@@ -189,7 +220,7 @@ pub trait Storage: Send + Sync {
         _path: &str,
         _upload_id: &str,
         _file_id: &str,
-        _content_hash: &str,
+        _content_hash: &Hash,
     ) -> impl Future<Output = Result<Option<FileMeta>, Self::Error>> + Send
     where
         Self: Sized,
