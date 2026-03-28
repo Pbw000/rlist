@@ -300,7 +300,7 @@ where
         &self,
         path: &str,
         page_size: u32,
-        cursor: Option<String>,
+        cursor: Option<usize>,
     ) -> Result<FileList, Self::Error> {
         match self.get_driver(path) {
             Some((driver, remaining_path)) => driver

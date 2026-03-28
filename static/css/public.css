@@ -613,3 +613,27 @@
     background: var(--primary-gradient);
     transition: width 0.3s;
 }
+
+/* ============ 加载更多指示器 ============ */
+.loading-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.loading-more .spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.loading-more.hidden {
+    display: none;
+}

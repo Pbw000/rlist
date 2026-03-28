@@ -26,11 +26,14 @@ pub struct FileList {
     pub items: Vec<FileMeta>,
     /// 总数
     pub total: u64,
-    /// 下一页游标（如果有）
-    pub next_cursor: Option<String>,
+    /// 下一页游标（开始偏移量，从 0 开始）
+    pub next_cursor: Option<usize>,
 }
 
 impl FileList {
+    /// 默认页大小
+    pub const DEFAULT_PAGE_SIZE: u32 = 20;
+
     pub fn new(items: Vec<FileMeta>, total: u64) -> Self {
         Self {
             items,
@@ -39,7 +42,7 @@ impl FileList {
         }
     }
 
-    pub fn with_cursor(items: Vec<FileMeta>, total: u64, next_cursor: Option<String>) -> Self {
+    pub fn with_cursor(items: Vec<FileMeta>, total: u64, next_cursor: Option<usize>) -> Self {
         Self {
             items,
             total,
@@ -144,11 +147,16 @@ pub trait Storage: Send + Sync {
     -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
 
     /// 列出文件
+    ///
+    /// # Arguments
+    /// * `path` - 要列出的目录路径
+    /// * `page_size` - 每页文件数量，建议使用 DEFAULT_PAGE_SIZE (20)
+    /// * `cursor` - 开始偏移量（从 0 开始），None 表示从开头开始
     fn list_files(
         &self,
         path: &str,
         page_size: u32,
-        cursor: Option<String>,
+        cursor: Option<usize>,
     ) -> impl Future<Output = Result<FileList, Self::Error>> + Send;
 
     /// 获取元数据

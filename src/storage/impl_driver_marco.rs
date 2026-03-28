@@ -191,7 +191,7 @@ macro_rules! impl_storage_enum {
                     &self,
                     path: &str,
                     page_size: u32,
-                    cursor: Option<String>,
+                    cursor: Option<usize>,
                 ) -> Result<$crate::storage::model::FileList, Self::Error> {
                     match self {
                         $($enum_name::$variant(driver) => {

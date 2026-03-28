@@ -154,8 +154,8 @@ impl Storage for LocalStorage {
     fn list_files(
         &self,
         path: &str,
-        _page_size: u32,
-        _cursor: Option<String>,
+        page_size: u32,
+        cursor: Option<usize>,
     ) -> impl Future<Output = Result<FileList, Self::Error>> + Send {
         async move {
             let dir_path = self.normalize_path(path)?;
@@ -177,7 +177,16 @@ impl Storage for LocalStorage {
                 }
             }
 
-            Ok(FileList::new(items, total))
+            // 应用分页（cursor 作为开始偏移量）
+            let start = cursor.unwrap_or(0);
+            let page_size = page_size as usize;
+            let end = start.saturating_add(page_size);
+
+            let next_cursor = if end < items.len() { Some(end) } else { None };
+
+            let paginated_items: Vec<_> = items.into_iter().skip(start).take(page_size).collect();
+
+            Ok(FileList::with_cursor(paginated_items, total, next_cursor))
         }
     }
 

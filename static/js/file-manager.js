@@ -14,6 +14,12 @@ class FileManager {
     this.selectedFiles = new Set();
     this.onFilesLoaded = options.onFilesLoaded || (() => {});
     this.onError = options.onError || (() => {});
+
+    // 分页相关
+    this.currentCursor = null; // 开始偏移量
+    this.hasMorePages = false;
+    this.isLoadingMore = false;
+    this.PAGE_SIZE = 20;
   }
 
   /**
@@ -29,16 +35,43 @@ class FileManager {
   }
 
   /**
-   * 加载文件列表
+   * 加载文件列表（支持分页）
    * @param {string} path - 路径
+   * @param {boolean} reset - 是否重置分页
    */
-  async loadFiles(path = this.currentPath) {
+  async loadFiles(path = this.currentPath, reset = true) {
     this.currentPath = path;
+
+    // 重置分页状态
+    if (reset) {
+      this.currentCursor = null;
+      this.hasMorePages = false;
+      this.filesData = [];
+    } else {
+      // 加载更多时跳过
+      if (this.isLoadingMore) return { success: false, message: "正在加载" };
+      this.isLoadingMore = true;
+    }
+
     try {
-      const response = await fetch(
-        `${this.apiBase}/fs/list?path=${encodeURIComponent(path)}`,
-        { headers: this.getAuthHeaders() },
-      );
+      const requestBody = {
+        path: path,
+        per_page: this.PAGE_SIZE,
+      };
+
+      // 添加游标参数
+      if (this.currentCursor !== null) {
+        requestBody.cursor = this.currentCursor;
+      }
+
+      const response = await fetch(`${this.apiBase}/fs/list`, {
+        method: "POST",
+        headers: {
+          ...this.getAuthHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
 
       if (response.status === 401) {
         showToast("认证失败，请重新登录", "error");
@@ -55,7 +88,7 @@ class FileManager {
 
       if (result.code === 200 && result.data) {
         const rawItems = result.data.items || [];
-        this.filesData = rawItems.map((item) => {
+        const newItems = rawItems.map((item) => {
           const isDir = item.File === undefined;
           return {
             name: item.File?.name || item.Directory?.name || "unknown",
@@ -67,7 +100,21 @@ class FileManager {
             modified: item.File?.modified_at || item.Directory?.modified_at,
           };
         });
-        this.onFilesLoaded(this.filesData);
+
+        // 更新分页状态
+        this.currentCursor = result.data.next_cursor;
+        this.hasMorePages =
+          this.currentCursor !== null && this.currentCursor !== undefined;
+
+        if (reset) {
+          this.filesData = newItems;
+        } else {
+          this.filesData = [...this.filesData, ...newItems];
+          this.isLoadingMore = false;
+        }
+
+        // 传递 append 参数
+        this.onFilesLoaded(this.filesData, !reset);
         return { success: true, data: this.filesData };
       } else {
         this.onError(result.message || "加载失败");
@@ -77,6 +124,16 @@ class FileManager {
       this.onError("网络错误：" + error.message);
       return { success: false, error: error.message };
     }
+  }
+
+  /**
+   * 加载更多文件
+   */
+  async loadMoreFiles() {
+    if (!this.hasMorePages || this.isLoadingMore) {
+      return { success: false, message: "没有更多数据" };
+    }
+    return this.loadFiles(this.currentPath, false);
   }
 
   /**

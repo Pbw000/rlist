@@ -105,7 +105,7 @@ impl Storage for McloudStorage {
     async fn build_cache(&self, path: &str) -> Result<(), McloudError> {
         if path.is_empty() || path == "/" {
             // 根路径，直接构建
-            self.build_cache_recursive("root", "/".to_string()).await?;
+            self.build_cache_recursive("root", "/").await?;
             return Ok(());
         }
 
@@ -123,12 +123,12 @@ impl Storage for McloudStorage {
             let ancestor_file_id = cached_entry.file_id().to_string();
             drop(cache);
             // dbg!(&ancestor_file_id);
-            self.build_cache_from_ancestor(&ancestor_file_id, path.to_string(), remainder)
+            self.build_cache_from_ancestor(&ancestor_file_id, path, remainder)
                 .await?;
         } else {
             // 没有匹配任何缓存，从 root 开始构建
             drop(cache);
-            self.build_cache_recursive("root", "/".to_string()).await?;
+            self.build_cache_recursive("root", "/").await?;
         }
 
         Ok(())
@@ -139,64 +139,85 @@ impl Storage for McloudStorage {
         Ok(meta)
     }
 
-    fn list_files(
+    async fn list_files(
         &self,
         path: &str,
         page_size: u32,
-        cursor: Option<String>,
-    ) -> impl Future<Output = Result<FileList, Self::Error>> + Send {
-        // dbg!(&path);
+        cursor: Option<usize>,
+    ) -> Result<FileList, McloudError> {
+        {
+            let cache = self.path_cache.read().await;
+            let children = cache.search_children(path);
+            if !children.is_empty() {
+                let start = cursor.unwrap_or(0);
+                let page_size = page_size as usize;
+                let end = start.saturating_add(page_size);
 
-        async move {
-            {
-                let cache = self.path_cache.read().await;
-                let children = cache.search_children(path);
-                if !children.is_empty() && cursor.is_none() {
-                    let mut items = Vec::new();
-                    for (_, child_node) in children {
-                        if let Some(cache_entry) = &child_node.value {
-                            items.push(cache_entry.file_meta.to_meta());
-                        }
-                    }
-                    return Ok(FileList {
-                        total: children.len() as u64,
-                        items,
-                        next_cursor: None,
-                    });
-                }
+                let items: Vec<_> = children
+                    .iter()
+                    .skip(start)
+                    .take(page_size)
+                    .filter_map(|(_, child_node)| {
+                        child_node.value.as_ref().map(|e| e.file_meta.to_meta())
+                    })
+                    .collect();
+
+                let total = children.len() as u64;
+                let next_cursor = if items.len() >= page_size && end < children.len() {
+                    Some(end)
+                } else {
+                    None
+                };
+
+                return Ok(FileList {
+                    total,
+                    items,
+                    next_cursor,
+                });
             }
-            // 首先尝试从缓存获取 file_id
-            let file_id = if path == "/" || path.is_empty() || path == "root" {
-                "root".to_string()
-            } else if let Some(id) = self.get_file_id_by_path(path).await {
-                id
-            } else {
-                return Err(McloudError::NotFound("File not found in cache".to_string()));
-            };
-
-            // 缓存未命中或需要分页，调用 API
-            let response = self
-                .list_files_internal(&file_id, page_size, cursor.clone())
-                .await?;
-
-            // 更新路径缓存
-            let parent_path = if path == "root" { "/" } else { path };
-            let entries: Vec<(String, CacheEntry)> = response
-                .items
-                .iter()
-                .map(|item| {
-                    let item_path = if parent_path == "/" {
-                        format!("/{}", item.name)
-                    } else {
-                        format!("{}/{}", parent_path, item.name)
-                    };
-                    (item_path, CacheEntry::new(item.clone()))
-                })
-                .collect();
-            self.update_cache_batch(entries).await;
-
-            Ok(response.to_file_list())
         }
+
+        // 首先尝试从缓存获取 file_id
+        let file_id = if path == "/" || path.is_empty() || path == "root" {
+            "root".to_string()
+        } else if let Some(id) = self.get_file_id_by_path(path).await {
+            id
+        } else {
+            return Err(McloudError::NotFound("File not found in cache".to_string()));
+        };
+
+        // 缓存未命中或需要分页，调用 API
+        // cursor 作为偏移量，转换为字符串传递给 API
+        let page_cursor = cursor.map(|c| c.to_string());
+        let response = self
+            .list_files_internal(&file_id, page_size, page_cursor)
+            .await?;
+
+        // 更新路径缓存 - 在消费 response 之前先提取 items
+        let parent_path = if path == "root" { "/" } else { path };
+        let entries: Vec<(String, CacheEntry)> = response
+            .items
+            .iter()
+            .map(|item| {
+                let item_path = if parent_path == "/" {
+                    format!("/{}", item.name)
+                } else {
+                    format!("{}/{}", parent_path, item.name)
+                };
+                (item_path, CacheEntry::new(item.clone()))
+            })
+            .collect();
+        self.update_cache_batch(entries).await;
+
+        // 计算下一页游标（偏移量）
+        let start = cursor.unwrap_or(0);
+        let next_cursor = if response.hasMore.unwrap_or(false) {
+            Some(start + response.items.len())
+        } else {
+            None
+        };
+
+        Ok(response.into_file_list_with_cursor(next_cursor))
     }
     async fn get_meta(&self, path: &str) -> Result<FileMeta, Self::Error> {
         let meta = self.get_file_meta_by_path(&path).await?;
@@ -228,136 +249,108 @@ impl Storage for McloudStorage {
         }
     }
 
-    fn create_folder(
-        &self,
-        path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send {
-        async move {
-            let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    async fn create_folder(&self, path: &str) -> Result<FileMeta, Self::Error> {
+        // 使用切片解析路径，避免不必要的字符串分配
+        let path_trimmed = path.trim_start_matches('/');
+        let (parent_id, folder_name) = if let Some((parent, name)) = path_trimmed.rsplit_once('/') {
+            let parent_id = self
+                .get_file_id_by_path(parent)
+                .await
+                .unwrap_or_else(|| "root".to_string());
+            (parent_id, name)
+        } else {
+            ("root".to_string(), path_trimmed)
+        };
 
-            let (parent_id, folder_name) = if parts.len() >= 2 {
-                let parent_path = parts[..parts.len() - 1].join("/");
-                let parent_id = self
-                    .get_file_id_by_path(&parent_path)
-                    .await
-                    .unwrap_or_else(|| "root".to_string());
-                (parent_id, parts.last().unwrap_or(&"").to_string())
-            } else {
-                ("root".to_string(), parts.last().unwrap_or(&"").to_string())
-            };
+        let meta = self.create_folder(&parent_id, &folder_name).await?;
 
-            let meta = self.create_folder(&parent_id, &folder_name).await?;
+        // 更新缓存
+        self.update_cache(path, CacheEntry::new(meta.clone())).await;
 
-            // 更新缓存
-            self.update_cache(path, CacheEntry::new(meta.clone())).await;
-
-            Ok(meta.to_meta())
-        }
+        Ok(meta.to_meta())
     }
 
-    fn delete(&self, path: &str) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            let file_id = if let Some(id) = self.get_file_id_by_path(path).await {
-                id
-            } else if path == "/" || path.is_empty() {
-                return Err(McloudError::ApiError("不能删除根目录".to_string()));
-            } else {
-                path.to_string()
-            };
-            self.delete_file(vec![file_id]).await?;
-            self.remove_cache(path).await;
-            Ok(())
-        }
+    async fn delete(&self, path: &str) -> Result<(), Self::Error> {
+        let file_id = if let Some(id) = self.get_file_id_by_path(path).await {
+            id
+        } else if path == "/" || path.is_empty() {
+            return Err(McloudError::ApiError("不能删除根目录".to_string()));
+        } else {
+            path.to_string()
+        };
+        self.delete_file(vec![file_id]).await?;
+        self.remove_cache(path).await;
+        Ok(())
     }
 
-    fn rename(
-        &self,
-        old_path: &str,
-        new_name: &str,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            let file_id = if let Some(id) = self.get_file_id_by_path(old_path).await {
-                id
-            } else {
-                old_path.to_string()
-            };
+    async fn rename(&self, old_path: &str, new_name: &str) -> Result<(), Self::Error> {
+        let file_id = if let Some(id) = self.get_file_id_by_path(old_path).await {
+            id
+        } else {
+            old_path.to_string()
+        };
 
-            // 获取父目录 file_id 以使缓存失效
-            let parent_path = old_path.rsplit_once('/').map(|(p, _)| p).unwrap_or("/");
+        // 获取父目录 file_id 以使缓存失效
+        let parent_path = old_path.rsplit_once('/').map(|(p, _)| p).unwrap_or("/");
 
-            self.rename_file(&file_id, new_name).await?;
+        self.rename_file(&file_id, new_name).await?;
 
-            // 清除旧缓存
-            self.remove_cache(old_path).await;
+        // 清除旧缓存
+        self.remove_cache(old_path).await;
 
-            self.build_cache(&parent_path).await?;
-            Ok(())
-        }
+        self.build_cache(parent_path).await?;
+        Ok(())
     }
 
-    fn copy_end_to_end(
+    async fn copy_end_to_end(
         &self,
         source_meta: Self::End2EndCopyMeta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            let source_id = source_meta; // source_meta 就是 file_id
+    ) -> Result<(), Self::Error> {
+        let source_id = source_meta; // source_meta 就是 file_id
 
-            let dest_id = if let Some(id) = self.get_file_id_by_path(dest_path).await {
-                id
-            } else {
-                "root".to_string()
-            };
+        let dest_id = if let Some(id) = self.get_file_id_by_path(dest_path).await {
+            id
+        } else {
+            "root".to_string()
+        };
 
-            self.copy_file(vec![source_id], &dest_id).await?;
-            Ok(())
-        }
+        self.copy_file(vec![source_id], &dest_id).await?;
+        Ok(())
     }
 
-    fn gen_copy_meta(
-        &self,
-        path: &str,
-    ) -> impl Future<Output = Result<Self::End2EndCopyMeta, Self::Error>> + Send {
-        async move {
-            let file_id = self
-                .get_file_id_by_path(path)
-                .await
-                .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
-            Ok(file_id)
-        }
+    async fn gen_copy_meta(&self, path: &str) -> Result<Self::End2EndCopyMeta, Self::Error> {
+        let file_id = self
+            .get_file_id_by_path(path)
+            .await
+            .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
+        Ok(file_id)
     }
 
-    fn move_end_to_end(
+    async fn move_end_to_end(
         &self,
         source_meta: Self::End2EndMoveMeta,
         dest_path: &str,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            let source_id = source_meta; // source_meta 就是 file_id
+    ) -> Result<(), Self::Error> {
+        let source_id = source_meta; // source_meta 就是 file_id
 
-            let dest_id = if let Some(id) = self.get_file_id_by_path(dest_path).await {
-                id
-            } else {
-                "root".to_string()
-            };
+        let dest_id = if let Some(id) = self.get_file_id_by_path(dest_path).await {
+            id
+        } else {
+            "root".to_string()
+        };
 
-            // 使用 batchMove API 直接移动文件
-            self.move_file(vec![source_id.clone()], &dest_id).await?;
-            Ok(())
-        }
+        // 使用 batchMove API 直接移动文件
+        self.move_file(vec![source_id.clone()], &dest_id).await?;
+        Ok(())
     }
 
-    fn gen_move_meta(
-        &self,
-        path: &str,
-    ) -> impl Future<Output = Result<Self::End2EndMoveMeta, Self::Error>> + Send {
-        async move {
-            let file_id = self
-                .get_file_id_by_path(path)
-                .await
-                .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
-            Ok(file_id)
-        }
+    async fn gen_move_meta(&self, path: &str) -> Result<Self::End2EndMoveMeta, Self::Error> {
+        let file_id = self
+            .get_file_id_by_path(path)
+            .await
+            .ok_or(McloudError::NotFound("File not found in cache".to_string()))?;
+        Ok(file_id)
     }
 
     async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
@@ -366,22 +359,19 @@ impl Storage for McloudStorage {
         content: R,
         param: crate::storage::model::UploadInfoParams,
     ) -> Result<FileMeta, Self::Error> {
-        // 解析路径，获取文件名和父目录
+        // 使用切片解析路径，避免不必要的字符串分配
         let path = &param.path;
-        let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        let file_name = parts
-            .last()
-            .ok_or(McloudError::ApiError("无效的文件路径".to_string()))?;
-
-        // 获取父目录 file_id
-        let parent_file_id = if parts.len() >= 2 {
-            let parent_path = parts[..parts.len() - 1].join("/");
-            self.get_file_id_by_path(&parent_path)
-                .await
-                .unwrap_or_else(|| "/".to_string())
-        } else {
-            "/".to_string()
-        };
+        let path_trimmed = path.trim_start_matches('/');
+        let (parent_file_id, file_name) =
+            if let Some((parent, name)) = path_trimmed.rsplit_once('/') {
+                let parent_id = self
+                    .get_file_id_by_path(parent)
+                    .await
+                    .unwrap_or_else(|| "/".to_string());
+                (parent_id, name)
+            } else {
+                ("/".to_string(), path_trimmed)
+            };
 
         // 1. 创建文件记录
         let hash = param.hash;
@@ -404,77 +394,75 @@ impl Storage for McloudStorage {
 
         // 更新缓存
         let file_path = if path.starts_with('/') {
-            path.to_string()
+            path
         } else {
-            format!("/{}", path)
+            return Err(McloudError::ApiError("路径必须以 / 开头".into()));
         };
-        self.build_cache(&file_path).await?;
+        self.build_cache(file_path).await?;
         self.get_meta(path).await
     }
 
-    fn get_upload_info(
+    async fn get_upload_info(
         &self,
         params: crate::storage::model::UploadInfoParams,
-    ) -> impl Future<Output = Result<crate::storage::model::UploadInfo, Self::Error>> + Send {
-        async move {
-            let parts: Vec<&str> = params.path.trim_start_matches('/').split('/').collect();
-            let file_name = parts
-                .last()
-                .ok_or(McloudError::ApiError("无效的文件路径".to_string()))?;
-            let parent_file_id = if parts.len() >= 2 {
-                let parent_path = parts[..parts.len() - 1].join("/");
-                let _ = self.build_cache(&parent_path).await;
+    ) -> Result<crate::storage::model::UploadInfo, Self::Error> {
+        // 使用切片解析路径，避免不必要的字符串分配
+        let path_trimmed = params.path.trim_start_matches('/');
+        let (parent_file_id, file_name) =
+            if let Some((parent, name)) = path_trimmed.rsplit_once('/') {
+                let _ = self.build_cache(parent).await;
 
                 // 从缓存获取父目录 file_id
-                self.get_file_id_by_path(&parent_path)
+                let parent_id = self
+                    .get_file_id_by_path(parent)
                     .await
-                    .unwrap_or_else(|| "/".to_string())
+                    .unwrap_or_else(|| "/".to_string());
+                (parent_id, name)
             } else {
-                "/".to_string()
+                ("/".to_string(), path_trimmed)
             };
 
-            let hash = params.hash;
-            let create_result = self
-                .create_upload_record(&parent_file_id, file_name, params.size, &hash)
-                .await?;
+        let hash = params.hash;
+        let create_result = self
+            .create_upload_record(&parent_file_id, file_name, params.size, &hash)
+            .await?;
 
-            // 检查是否是秒传
-            if create_result.upload_url.is_empty() {
-                self.build_cache(&params.path).await.ok();
-                Ok(crate::storage::model::UploadInfo {
-                    upload_url: "about:blank".to_string(),
-                    method: "POST".to_string(),
-                    form_fields: None,
-                    headers: None,
-                    complete_url: None,
-                })
-            } else {
-                // 构建上传请求头
-                let mut headers = std::collections::HashMap::new();
-                headers.insert(
-                    "Content-Type".to_string(),
-                    "application/octet-stream".to_string(),
-                );
-                headers.insert("Origin".to_string(), "https://yun.139.com".to_string());
-                headers.insert("Referer".to_string(), "https://yun.139.com/".to_string());
-                headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0".to_string());
+        // 检查是否是秒传
+        if create_result.upload_url.is_empty() {
+            self.build_cache(&params.path).await.ok();
+            Ok(crate::storage::model::UploadInfo {
+                upload_url: "about:blank".to_string(),
+                method: "POST".to_string(),
+                form_fields: None,
+                headers: None,
+                complete_url: None,
+            })
+        } else {
+            // 构建上传请求头
+            let mut headers = std::collections::HashMap::new();
+            headers.insert(
+                "Content-Type".to_string(),
+                "application/octet-stream".to_string(),
+            );
+            headers.insert("Origin".to_string(), "https://yun.139.com".to_string());
+            headers.insert("Referer".to_string(), "https://yun.139.com/".to_string());
+            headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0".to_string());
 
-                // mcloud 使用 PUT 方法直接上传文件内容，不需要 form_fields
-                // form_fields 用于 S3 等需要表单字段的存储
+            // mcloud 使用 PUT 方法直接上传文件内容，不需要 form_fields
+            // form_fields 用于 S3 等需要表单字段的存储
 
-                Ok(crate::storage::model::UploadInfo {
-                    upload_url: create_result.upload_url,
-                    method: "PUT".to_string(),
-                    form_fields: None, // mcloud 不需要表单字段
-                    headers: Some(headers),
-                    complete_url: Some(format!(
-                        "/api/fs/upload/complete?path={}&upload_id={}&file_id={}",
-                        params.path, // 使用绝对路径
-                        create_result.upload_id,
-                        create_result.file_id
-                    )),
-                })
-            }
+            Ok(crate::storage::model::UploadInfo {
+                upload_url: create_result.upload_url,
+                method: "PUT".to_string(),
+                form_fields: None, // mcloud 不需要表单字段
+                headers: Some(headers),
+                complete_url: Some(format!(
+                    "/api/fs/upload/complete?path={}&upload_id={}&file_id={}",
+                    params.path, // 使用绝对路径
+                    create_result.upload_id,
+                    create_result.file_id
+                )),
+            })
         }
     }
 
@@ -922,31 +910,31 @@ impl McloudStorage {
     async fn build_cache_from_ancestor(
         &self,
         ancestor_file_id: &str,
-        target_path: String,
+        target_path: &str,
         remainder: &str,
     ) -> Result<(), McloudError> {
-        // 计算祖先路径
-        let ancestor_path = if target_path.ends_with(remainder) && !remainder.is_empty() {
-            let end = target_path.len() - remainder.len();
-            target_path[..end].trim_end_matches('/').to_string()
+        // 计算祖先路径 - 使用切片避免字符串分配
+        let ancestor_path = if remainder.is_empty() {
+            target_path
+        } else if target_path.ends_with(remainder) {
+            &target_path[..target_path.len() - remainder.len()]
         } else {
-            String::new()
+            ""
         };
+        let ancestor_path = ancestor_path.trim_end_matches('/');
         let ancestor_path = if ancestor_path.is_empty() {
-            "/".to_string()
+            "/"
         } else {
             ancestor_path
         };
 
         // 逐层构建剩余路径
         let mut current_file_id = ancestor_file_id.to_string();
-        let mut current_path = ancestor_path;
-        let mut remaining_parts: Vec<&str> =
-            remainder.split('/').filter(|s| !s.is_empty()).collect();
+        let mut current_path = ancestor_path.to_string();
+        // 使用迭代器而不是收集到 Vec
+        let mut remaining_parts = remainder.split('/').filter(|s| !s.is_empty());
 
-        while !remaining_parts.is_empty() {
-            let target_name = remaining_parts.remove(0);
-
+        while let Some(target_name) = remaining_parts.next() {
             // 获取当前目录下的所有子项
             let mut cursor = None;
             let mut found = false;
@@ -971,8 +959,7 @@ impl McloudStorage {
                         // 如果是文件夹，构建其完整缓存
                         if item.file_type == McloudFileType::Folder {
                             // 递归构建子目录缓存
-                            self.build_cache_recursive(&item.id, current_path.clone())
-                                .await?;
+                            self.build_cache_recursive(&item.id, &current_path).await?;
                         }
                         break;
                     }
@@ -997,7 +984,7 @@ impl McloudStorage {
         Ok(())
     }
 
-    async fn build_cache_recursive(&self, file_id: &str, path: String) -> Result<(), McloudError> {
+    async fn build_cache_recursive(&self, file_id: &str, path: &str) -> Result<(), McloudError> {
         let mut all_entries = Vec::new();
         let mut cursor = None;
 
@@ -1014,7 +1001,7 @@ impl McloudStorage {
 
                 all_entries.push((item_path.clone(), CacheEntry::new(item.clone())));
                 if item.file_type == McloudFileType::Folder {
-                    Box::pin(self.build_cache_recursive(&item.id, item_path)).await?;
+                    Box::pin(self.build_cache_recursive(&item.id, &item_path)).await?;
                 }
             }
             if response.hasMore.unwrap_or(false) {

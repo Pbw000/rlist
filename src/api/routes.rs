@@ -34,7 +34,7 @@ pub fn create_routes(state: AppState) -> Router<AppState> {
         .route("/download", get(public::public_download_file));
 
     let list_routes = Router::new()
-        .route("/fs/list", get(public::list_files))
+        .route("/fs/list", post(public::list_files))
         .route("/fs/dir", get(public::get_file_info))
         .layer(middleware::from_fn_with_state(
             AuthMiddlewareState {

@@ -98,7 +98,7 @@ impl<T: Storage> Storage for PartialStorage<T> {
         &self,
         path: &str,
         page_size: u32,
-        cursor: Option<String>,
+        cursor: Option<usize>,
     ) -> Result<FileList, Self::Error> {
         self.inner
             .list_files(&self.handle_path(path), page_size, cursor)

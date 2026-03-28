@@ -27,7 +27,11 @@ where
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     pub path: Option<String>,
+    /// 页码（从 0 开始），与 cursor 二选一
     pub page: Option<u32>,
+    /// 游标（页码，从 0 开始），与 page 二选一
+    pub cursor: Option<usize>,
+    /// 每页数量，默认 20
     pub per_page: Option<u32>,
     pub storage: Option<String>,
 }

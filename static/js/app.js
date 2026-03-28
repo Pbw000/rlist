@@ -440,6 +440,9 @@ function navigateTo(path, addToHistory = true) {
       history.pushState({ path: targetPath }, "", newUrl);
     }
 
+    // 重置滚动监听器（进入新目录）
+    resetScrollListener();
+
     // 更新面包屑和文件列表
     updateBreadcrumb();
     loadCurrentStorageFiles();
@@ -710,8 +713,9 @@ function updateBreadcrumb() {
 /**
  * 渲染文件列表
  * @param {Array} files - 文件列表
+ * @param {boolean} append - 是否追加模式
  */
-function renderFiles(files) {
+function renderFiles(files, append = false) {
   const fileList = document.getElementById("fileList");
   if (!fileList) return;
 
@@ -731,67 +735,139 @@ function renderFiles(files) {
     // 公开存储模式下隐藏复选框
     const showCheckbox = !isPublicStorageMode;
 
-    fileList.innerHTML = `
-    <div class="file-list-header">
-        ${showCheckbox ? '<div><input type="checkbox" class="checkbox" onchange="toggleSelectAll(this.checked)"></div>' : ""}
-        <div>名称</div>
-        <div>大小</div>
-        <div>修改日期</div>
-        <div>操作</div>
-    </div>
-    ${sortedFiles
-      .map(
-        (file) => `
-        <div class="file-item ${fileManager.selectedFiles.has(file.path) ? "selected" : ""}"
-             data-path="${escapeHtml(file.path)}"
-             data-type="${file.file_type}"
-             oncontextmenu="showContextMenu(event, '${escapeHtml(file.path)}', '${file.file_type}')">
-            ${
-              showCheckbox
-                ? `
-            <div>
-                <input type="checkbox" class="checkbox"
-                       ${fileManager.selectedFiles.has(file.path) ? "checked" : ""}
-                       onchange="toggleSelection('${escapeHtml(file.path)}', this.checked, event)">
-            </div>
-            `
-                : ""
-            }
-            <div class="file-main" onclick="handleFileClick('${escapeHtml(file.path)}', '${file.file_type}', event)">
-                <div class="file-icon ${file.file_type === "dir" ? "folder" : ""}">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
+    if (append) {
+      // 增量渲染 - 追加模式
+      const itemsHtml = `
+        ${sortedFiles
+          .map(
+            (file) => `
+            <div class="file-item ${fileManager.selectedFiles.has(file.path) ? "selected" : ""}"
+                 data-path="${escapeHtml(file.path)}"
+                 data-type="${file.file_type}"
+                 oncontextmenu="showContextMenu(event, '${escapeHtml(file.path)}', '${file.file_type}')">
+                ${
+                  showCheckbox
+                    ? `
                 <div>
-                    <div class="file-name">${escapeHtml(file.name)}</div>
-                    <div class="file-meta">${file.file_type === "file" ? formatSize(file.size) : "文件夹"}</div>
+                    <input type="checkbox" class="checkbox"
+                           ${fileManager.selectedFiles.has(file.path) ? "checked" : ""}
+                           onchange="toggleSelection('${escapeHtml(file.path)}', this.checked, event)">
+                </div>
+                `
+                    : ""
+                }
+                <div class="file-main" onclick="handleFileClick('${escapeHtml(file.path)}', '${file.file_type}', event)">
+                    <div class="file-icon ${file.file_type === "dir" ? "folder" : ""}">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
+                    <div>
+                        <div class="file-name">${escapeHtml(file.name)}</div>
+                        <div class="file-meta">${file.file_type === "file" ? formatSize(file.size) : "文件夹"}</div>
+                    </div>
+                </div>
+                <div class="file-size">${file.file_type === "file" ? formatSize(file.size) : ""}</div>
+                <div class="file-date">${file.modified ? formatDate(file.modified) : ""}</div>
+                <div class="file-actions">
+                    ${
+                      file.file_type === "dir"
+                        ? `
+                        <button class="action-btn" onclick="enterFolderWithAnimation('${escapeHtml(file.path)}')" title="打开">
+                            <i class="ti ti-folder-open"></i>
+                        </button>
+                    `
+                        : `
+                        <button class="action-btn" onclick="previewFile('${escapeHtml(file.path)}', '${escapeHtml(file.name)}')" title="预览">
+                            <i class="ti ti-eye"></i>
+                        </button>
+                        <button class="action-btn" onclick="downloadFile('${escapeHtml(file.path)}')" title="下载">
+                            <i class="ti ti-download"></i>
+                        </button>
+                    `
+                    }
+                    <button class="action-btn" onclick="showContextMenuForFile('${escapeHtml(file.path)}', '${file.file_type}')" title="更多">
+                        <i class="ti ti-dots"></i>
+                    </button>
                 </div>
             </div>
-            <div class="file-size">${file.file_type === "file" ? formatSize(file.size) : ""}</div>
-            <div class="file-date">${file.modified ? formatDate(file.modified) : ""}</div>
-            <div class="file-actions">
-                ${
-                  file.file_type === "dir"
-                    ? `
-                    <button class="action-btn" onclick="enterFolderWithAnimation('${escapeHtml(file.path)}')" title="打开">
-                        <i class="ti ti-folder-open"></i>
-                    </button>
-                `
-                    : `
-                    <button class="action-btn" onclick="previewFile('${escapeHtml(file.path)}', '${escapeHtml(file.name)}')" title="预览">
-                        <i class="ti ti-eye"></i>
-                    </button>
-                    <button class="action-btn" onclick="downloadFile('${escapeHtml(file.path)}')" title="下载">
-                        <i class="ti ti-download"></i>
-                    </button>
-                `
-                }
-                <button class="action-btn" onclick="showContextMenuForFile('${escapeHtml(file.path)}', '${file.file_type}')" title="更多">
-                    <i class="ti ti-dots"></i>
-                </button>
-            </div>
+        `,
+          )
+          .join("")}
+      `;
+
+      // 移除加载指示器并追加
+      const loadingIndicator = fileList.querySelector(".loading-more");
+      if (loadingIndicator) {
+        loadingIndicator.insertAdjacentHTML("beforebegin", itemsHtml);
+      } else {
+        fileList.insertAdjacentHTML("beforeend", itemsHtml);
+      }
+
+      setupScrollListener();
+    } else {
+      // 完全重新渲染
+      fileList.innerHTML = `
+        <div class="file-list-header">
+            ${showCheckbox ? '<div><input type="checkbox" class="checkbox" onchange="toggleSelectAll(this.checked)"></div>' : ""}
+            <div>名称</div>
+            <div>大小</div>
+            <div>修改日期</div>
+            <div>操作</div>
         </div>
-    `,
-      )
-      .join("")}
-  `;
+        ${sortedFiles
+          .map(
+            (file) => `
+            <div class="file-item ${fileManager.selectedFiles.has(file.path) ? "selected" : ""}"
+                 data-path="${escapeHtml(file.path)}"
+                 data-type="${file.file_type}"
+                 oncontextmenu="showContextMenu(event, '${escapeHtml(file.path)}', '${file.file_type}')">
+                ${
+                  showCheckbox
+                    ? `
+                <div>
+                    <input type="checkbox" class="checkbox"
+                           ${fileManager.selectedFiles.has(file.path) ? "checked" : ""}
+                           onchange="toggleSelection('${escapeHtml(file.path)}', this.checked, event)">
+                </div>
+                `
+                    : ""
+                }
+                <div class="file-main" onclick="handleFileClick('${escapeHtml(file.path)}', '${file.file_type}', event)">
+                    <div class="file-icon ${file.file_type === "dir" ? "folder" : ""}">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
+                    <div>
+                        <div class="file-name">${escapeHtml(file.name)}</div>
+                        <div class="file-meta">${file.file_type === "file" ? formatSize(file.size) : "文件夹"}</div>
+                    </div>
+                </div>
+                <div class="file-size">${file.file_type === "file" ? formatSize(file.size) : ""}</div>
+                <div class="file-date">${file.modified ? formatDate(file.modified) : ""}</div>
+                <div class="file-actions">
+                    ${
+                      file.file_type === "dir"
+                        ? `
+                        <button class="action-btn" onclick="enterFolderWithAnimation('${escapeHtml(file.path)}')" title="打开">
+                            <i class="ti ti-folder-open"></i>
+                        </button>
+                    `
+                        : `
+                        <button class="action-btn" onclick="previewFile('${escapeHtml(file.path)}', '${escapeHtml(file.name)}')" title="预览">
+                            <i class="ti ti-eye"></i>
+                        </button>
+                        <button class="action-btn" onclick="downloadFile('${escapeHtml(file.path)}')" title="下载">
+                            <i class="ti ti-download"></i>
+                        </button>
+                    `
+                    }
+                    <button class="action-btn" onclick="showContextMenuForFile('${escapeHtml(file.path)}', '${file.file_type}')" title="更多">
+                        <i class="ti ti-dots"></i>
+                    </button>
+                </div>
+            </div>
+        `,
+          )
+          .join("")}
+      `;
+
+      setupScrollListener();
+    }
+
     updateDeleteButton();
   } catch (error) {
     console.error("渲染文件列表失败:", error);
@@ -806,6 +882,49 @@ function renderFiles(files) {
       </div>
     `;
     showToast("渲染文件列表失败：" + error.message, "error");
+  }
+}
+
+// 滚动监听器初始化标志
+let scrollListenerInitialized = false;
+
+/**
+ * 设置滚动监听器以加载更多文件（只初始化一次）
+ */
+function setupScrollListener() {
+  if (scrollListenerInitialized) return;
+
+  const container = document.querySelector(".file-list-container");
+  if (!container) return;
+
+  container.addEventListener("scroll", handleScroll);
+  scrollListenerInitialized = true;
+}
+
+/**
+ * 重置滚动监听器（用于进入新目录）
+ */
+function resetScrollListener() {
+  scrollListenerInitialized = false;
+}
+
+/**
+ * 滚动处理函数
+ */
+function handleScroll() {
+  const container = document.querySelector(".file-list-container");
+  if (!container) return;
+
+  const { scrollTop, scrollHeight, clientHeight } = container;
+  const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+
+  // 当滚动到距离底部 100px 时加载更多
+  if (distanceToBottom <= 100) {
+    if (isPublicStorageMode) {
+      loadMoreFiles();
+    } else if (fileManager) {
+      fileManager.loadMoreFiles();
+    }
   }
 }
 

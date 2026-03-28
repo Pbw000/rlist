@@ -11,7 +11,7 @@ use ring::digest::SHA512;
 use crate::{
     api::{state::AppState, types::*},
     auth::challenge::IntoHashContext,
-    storage::model::{Meta, Storage, UploadInfoParams},
+    storage::model::{FileList, Meta, Storage, UploadInfoParams},
 };
 
 use crate::api::types::ApiResponse;
@@ -121,15 +121,17 @@ pub async fn complete_upload(
 /// 列出文件和目录
 pub async fn list_files(
     State(state): State<AppState>,
-    Query(query): Query<ListQuery>,
+    Json(payload): Json<ListQuery>,
 ) -> impl IntoResponse {
-    let path = query.path.as_deref().unwrap_or("/");
+    let path = payload.path.as_deref().unwrap_or("/");
     let registry_guard = state.inner.private_registry.read().await;
 
-    match registry_guard
-        .list_files(path, query.per_page.unwrap_or(100), None)
-        .await
-    {
+    // 使用 cursor 或 page 作为游标，默认第一页（0）
+    let cursor = payload.cursor.or_else(|| payload.page.map(|p| p as usize));
+    // 默认页大小 20
+    let page_size = payload.per_page.unwrap_or(FileList::DEFAULT_PAGE_SIZE);
+
+    match registry_guard.list_files(path, page_size, cursor).await {
         Ok(list) => ApiResponse::success(list),
         Err(e) => ApiResponse::error(500, format!("列出文件失败：{}", e)),
     }
@@ -316,10 +318,12 @@ pub async fn public_list_files(
     let path = payload.path.as_deref().unwrap_or("/");
     let registry_guard = state.get_public_registry().await;
 
-    match registry_guard
-        .list_files(path, payload.per_page.unwrap_or(100), None)
-        .await
-    {
+    // 使用 cursor 或 page 作为游标，默认第一页（0）
+    let cursor = payload.cursor.or_else(|| payload.page.map(|p| p as usize));
+    // 默认页大小 20
+    let page_size = payload.per_page.unwrap_or(FileList::DEFAULT_PAGE_SIZE);
+
+    match registry_guard.list_files(path, page_size, cursor).await {
         Ok(list) => ApiResponse::success(list),
         Err(e) => ApiResponse::error(500, format!("列出文件失败：{}", e)),
     }

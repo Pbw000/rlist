@@ -44,29 +44,19 @@ impl<'de> Deserialize<'de> for WopanFileType {
     }
 }
 
-/// 文件元数据
+/// 文件元数据 - 只保留必要的字段
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WopanFileMeta {
-    #[serde(rename = "familyId", default)]
-    pub family_id: Option<i64>,
     #[serde(rename = "fid")]
     pub fid: String,
-    #[serde(rename = "creator", default)]
-    pub creator: Option<String>,
     #[serde(rename = "size", default)]
     pub size: Option<u64>,
     #[serde(rename = "createTime")]
     pub create_time: String,
-    #[serde(rename = "shootingTime", default)]
-    pub shooting_time: Option<String>,
     #[serde(rename = "id")]
     pub id: String,
     #[serde(rename = "type")]
     pub file_type: WopanFileType,
-    #[serde(rename = "thumbUrl", default)]
-    pub thumb_url: Option<String>,
-    #[serde(rename = "fileType", default)]
-    pub file_type_str: Option<String>,
     #[serde(rename = "name")]
     pub name: String,
 }
@@ -169,10 +159,16 @@ pub struct WopanCreateDirectoryData {
 /// 上传响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WopanUpload2CResp {
-    #[serde(rename = "fid")]
-    pub fid: String,
+    #[serde(rename = "data")]
+    pub data: WopanUpload2CData,
     #[serde(rename = "uploadUrl", default)]
     pub upload_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WopanUpload2CData {
+    #[serde(rename = "fid")]
+    pub fid: String,
 }
 
 /// 家庭用户信息响应
@@ -401,4 +397,23 @@ pub struct FamilyUserCurrentEncodeBody {
 pub struct GetZoneInfoBody {
     #[serde(rename = "appId")]
     pub app_id: String,
+}
+
+/// 文件上传信息结构体（用于序列化，使用生命周期避免分配）
+#[derive(Debug, Serialize)]
+pub struct WopanFileInfo<'a> {
+    #[serde(rename = "spaceType")]
+    pub space_type: &'a str,
+    #[serde(rename = "directoryId")]
+    pub directory_id: &'a str,
+    #[serde(rename = "batchNo")]
+    pub batch_no: &'a str,
+    #[serde(rename = "fileName")]
+    pub file_name: &'a str,
+    #[serde(rename = "fileSize")]
+    pub file_size: u64,
+    #[serde(rename = "fileType")]
+    pub file_type: &'a str,
+    #[serde(rename = "familyId", skip_serializing_if = "Option::is_none")]
+    pub family_id: Option<&'a str>,
 }

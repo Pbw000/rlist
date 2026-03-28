@@ -387,20 +387,34 @@ impl Storage for WopanStorage {
         &self,
         path: &str,
         page_size: u32,
-        cursor: Option<String>,
+        cursor: Option<usize>,
     ) -> Result<FileList, WopanError> {
         {
             let cache = self.path_cache.read().await;
             let children = cache.search_children(path);
-            if !children.is_empty() && cursor.is_none() {
+            if !children.is_empty() {
+                let start = cursor.unwrap_or(0);
+                let page_size = page_size as usize;
+                let end = start.saturating_add(page_size);
+
                 let items: Vec<_> = children
                     .iter()
+                    .skip(start)
+                    .take(page_size)
                     .filter_map(|(_, n)| n.value.as_ref().map(|e| e.file_meta.to_meta()))
                     .collect();
+
+                let total = children.len() as u64;
+                let next_cursor = if items.len() >= page_size && end < children.len() {
+                    Some(end)
+                } else {
+                    None
+                };
+
                 return Ok(FileList {
-                    total: items.len() as u64,
+                    total,
                     items,
-                    next_cursor: None,
+                    next_cursor,
                 });
             }
         }
@@ -413,7 +427,9 @@ impl Storage for WopanStorage {
                 .ok_or_else(|| WopanError::NotFound("File not found in cache".to_string()))?
         };
 
-        let page_num = cursor.and_then(|c| c.parse::<i32>().ok()).unwrap_or(0);
+        // cursor 作为偏移量，计算页码
+        let start = cursor.unwrap_or(0);
+        let page_num = (start / page_size as usize) as i32;
         let response = self
             .list_files_internal(&file_id, page_num, page_size as i32)
             .await?;
@@ -432,7 +448,15 @@ impl Storage for WopanStorage {
             })
             .collect();
         self.update_cache_batch(entries).await;
-        Ok(response.to_file_list())
+
+        // 计算下一页游标（偏移量）
+        let next_cursor = if response.files.len() >= page_size as usize {
+            Some(start + response.files.len())
+        } else {
+            None
+        };
+
+        Ok(response.into_file_list_with_cursor(next_cursor))
     }
 
     async fn get_meta(&self, path: &str) -> Result<FileMeta, WopanError> {
@@ -463,23 +487,18 @@ impl Storage for WopanStorage {
     }
 
     async fn create_folder(&self, path: &str) -> Result<FileMeta, WopanError> {
-        let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        let (parent_id, folder_name);
-        if parts.len() >= 2 {
-            let parent_path = parts[..parts.len() - 1].join("/");
-            parent_id = self
-                .get_file_id_by_path(&parent_path)
+        let path_trimmed = path.trim_start_matches('/');
+        let (parent_id, folder_name) = if let Some((parent, name)) = path_trimmed.rsplit_once('/') {
+            let parent_id = self
+                .get_file_id_by_path(parent)
                 .await
                 .unwrap_or_else(|| "root".to_string());
-            folder_name = parts.last().unwrap_or(&"").to_string();
+            (parent_id, name)
         } else {
-            parent_id = "root".to_string();
-            folder_name = parts.last().unwrap_or(&"").to_string();
-        }
+            ("root".to_string(), path_trimmed)
+        };
 
-        let meta = self
-            .create_folder_internal(&parent_id, &folder_name)
-            .await?;
+        let meta = self.create_folder_internal(&parent_id, folder_name).await?;
         self.update_cache(path, CacheEntry::new(meta.clone())).await;
         Ok(meta.to_meta())
     }
@@ -548,22 +567,16 @@ impl Storage for WopanStorage {
     ) -> Result<FileMeta, WopanError> {
         use tokio_util::io::ReaderStream;
 
-        // 克隆 path 以避免生命周期问题
-        let path_str = param.path.clone();
-        let parts: Vec<String> = path_str
-            .trim_start_matches('/')
-            .split('/')
-            .map(|s| s.to_string())
-            .collect();
-        let file_name = parts.last().cloned().unwrap_or_else(|| "".to_string());
-
-        let parent_file_id = if parts.len() >= 2 {
-            let parent_path = parts[..parts.len() - 1].join("/");
-            self.get_file_id_by_path(&parent_path)
+        // 使用切片解析路径，避免不必要的字符串分配
+        let path_str = param.path.trim_start_matches('/');
+        let (parent_file_id, file_name) = if let Some((parent, name)) = path_str.rsplit_once('/') {
+            let parent_id = self
+                .get_file_id_by_path(parent)
                 .await
-                .unwrap_or_else(|| "/".to_string())
+                .unwrap_or_else(|| "/".to_string());
+            (parent_id, name)
         } else {
-            "/".to_string()
+            ("/".to_string(), path_str)
         };
         let _hash = param.hash;
 
@@ -583,19 +596,13 @@ impl Storage for WopanStorage {
             .as_millis();
         let random_str = uuid::Uuid::new_v4().simple().to_string();
         let unique_id = format!("{}_{}", timestamp, random_str);
-
-        // 根据 Python 代码，directoryId 在个人空间为 "0"，家庭空间为 family_id
         let directory_id = if space_type == SPACE_TYPE_FAMILY {
             family_id.clone().unwrap_or_else(|| "0".to_string())
         } else {
             "0".to_string()
         };
-
-        // 生成 batchNo (时间戳格式：20060102150405)
         let now = chrono::Local::now();
         let batch_no = now.format("%Y%m%d%H%M%S").to_string();
-
-        // 构建 fileInfo JSON (参考 alist wopan-sdk-go 实现)
         let mut file_info_obj = serde_json::json!({
             "spaceType": space_type,
             "directoryId": directory_id,
@@ -611,13 +618,9 @@ impl Storage for WopanStorage {
                 file_info_obj["familyId"] = serde_json::json!(fid);
             }
         }
-
-        // 使用与 encrypt_body 相同的方式加密 fileInfo
         let file_info_json = serde_json::to_string(&file_info_obj)
             .map_err(|e| WopanError::ParseError(format!("Serialize file_info failed: {}", e)))?;
         let file_info = self.encrypt_body(&file_info_json)?;
-
-        // 计算总片数（参考 Go SDK）
         const DEFAULT_PART_SIZE: u64 = 8 * 1024 * 1024; // 8MB
         let total_part = if param.size == 0 {
             1
@@ -673,31 +676,22 @@ impl Storage for WopanStorage {
                 response.text().await.unwrap_or_default()
             )));
         }
-
-        let _api_response: WopanUpload2CResp = response
-            .json()
-            .await
-            .map_err(|e| WopanError::ParseError(format!("解析响应失败：{}", e)))?;
-
-        // 更新缓存
         self.build_cache(&param.path).await?;
         self.get_meta(&param.path).await
     }
 
     async fn get_upload_info(&self, params: UploadInfoParams) -> Result<UploadInfo, WopanError> {
-        let parts: Vec<&str> = params.path.trim_start_matches('/').split('/').collect();
-        let file_name = parts
-            .last()
-            .ok_or_else(|| WopanError::UploadError("无效的文件路径".into()))?;
-
-        let parent_file_id = if parts.len() >= 2 {
-            let parent_path = parts[..parts.len() - 1].join("/");
-            let _ = self.build_cache(&parent_path).await;
-            self.get_file_id_by_path(&parent_path)
+        // 使用切片解析路径，避免不必要的字符串分配
+        let path_str = params.path.trim_start_matches('/');
+        let (parent_file_id, file_name) = if let Some((parent, name)) = path_str.rsplit_once('/') {
+            let _ = self.build_cache(parent).await;
+            let parent_id = self
+                .get_file_id_by_path(parent)
                 .await
-                .unwrap_or_else(|| "root".to_string())
+                .unwrap_or_else(|| "root".to_string());
+            (parent_id, name)
         } else {
-            "root".to_string()
+            ("root".to_string(), path_str)
         };
         let hash = params.hash;
         let create_result = self
@@ -831,12 +825,12 @@ impl WopanStorage {
         };
         let response: WopanDownloadUrlData =
             self.send_request(KEY_GET_DOWNLOAD_URL_V2, body).await?;
-        for url in response.list {
-            return Ok(url.download_url);
-        }
-        Err(WopanError::DownloadError(
-            "No download URL in response".into(),
-        ))
+        response
+            .list
+            .into_iter()
+            .next()
+            .map(|url| url.download_url)
+            .ok_or_else(|| WopanError::DownloadError("No download URL in response".into()))
     }
 
     async fn create_folder_internal(
@@ -861,16 +855,11 @@ impl WopanStorage {
         let response: WopanCreateDirectoryData =
             self.send_request(KEY_CREATE_DIRECTORY, body).await?;
         Ok(WopanFileMeta {
-            family_id: None,
             fid: String::new(),
-            creator: None,
             size: Some(0),
             create_time: chrono::Utc::now().format("%Y%m%d%H%M%S").to_string(),
-            shooting_time: None,
             id: response.id,
             file_type: WopanFileType::Folder,
-            thumb_url: None,
-            file_type_str: None,
             name: name.to_owned(),
         })
     }
@@ -1012,7 +1001,10 @@ impl WopanStorage {
         target_path: &str,
         remainder: &str,
     ) -> Result<(), WopanError> {
-        let ancestor_path = if target_path.ends_with(remainder) && !remainder.is_empty() {
+        // 计算祖先路径 - 使用切片而不是创建新字符串
+        let ancestor_path = if remainder.is_empty() {
+            target_path
+        } else if target_path.ends_with(remainder) {
             target_path[..target_path.len() - remainder.len()].trim_end_matches('/')
         } else {
             ""
@@ -1025,11 +1017,10 @@ impl WopanStorage {
 
         let mut current_file_id = ancestor_file_id.to_owned();
         let mut current_path = ancestor_path.to_owned();
-        let mut remaining_parts: Vec<&str> =
-            remainder.split('/').filter(|s| !s.is_empty()).collect();
+        // 使用迭代器而不是收集到 Vec
+        let mut remaining_parts = remainder.split('/').filter(|s| !s.is_empty());
 
-        while !remaining_parts.is_empty() {
-            let target_name = remaining_parts.remove(0);
+        while let Some(target_name) = remaining_parts.next() {
             let mut cursor = None;
             let mut found = false;
 
@@ -1128,22 +1119,16 @@ impl WopanStorage {
         let now = chrono::Local::now();
         let batch_no = now.format("%Y%m%d%H%M%S").to_string();
 
-        // 构建 fileInfo JSON (参考 alist wopan-sdk-go 实现)
-        let mut file_info_obj = serde_json::json!({
-            "spaceType": space_type,
-            "directoryId": directory_id,
-            "batchNo": batch_no,
-            "fileName": file_name,
-            "fileSize": file_size,
-            "fileType": self.get_file_type(file_name),
-        });
-
-        // 根据空间类型添加额外字段
-        if space_type == SPACE_TYPE_FAMILY {
-            if let Some(ref fid) = family_id {
-                file_info_obj["familyId"] = serde_json::json!(fid);
-            }
-        }
+        // 使用 struct 构建 fileInfo，避免 json! 宏
+        let file_info_obj = WopanFileInfo {
+            space_type,
+            directory_id: &directory_id,
+            batch_no: &batch_no,
+            file_name,
+            file_size,
+            file_type: self.get_file_type(file_name),
+            family_id: family_id.as_deref(),
+        };
 
         // 使用与 encrypt_body 相同的方式加密 fileInfo
         let file_info_json = serde_json::to_string(&file_info_obj)
@@ -1182,21 +1167,48 @@ impl WopanStorage {
         let extension = std::path::Path::new(file_name)
             .extension()
             .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
+            .unwrap_or("");
 
-        match extension.as_str() {
-            "doc" | "docx" => "1",
-            "xls" | "xlsx" | "csv" => "2",
-            "ppt" | "pptx" => "3",
-            "pdf" => "4",
-            "txt" => "5",
-            "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "heic" | "heif" => "6",
-            "mp3" | "wav" | "flac" | "aac" => "7",
-            "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" | "webm" => "8",
-            "zip" | "rar" | "7z" | "tar" | "gz" => "9",
-            _ => "0", // 其他类型
+        // 使用 ASCII 小写转换，避免分配
+        for ext in [
+            "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx", "pdf", "txt",
+        ] {
+            if extension.eq_ignore_ascii_case(ext) {
+                return match ext {
+                    "doc" | "docx" => "1",
+                    "xls" | "xlsx" | "csv" => "2",
+                    "ppt" | "pptx" => "3",
+                    "pdf" => "4",
+                    _ => "5",
+                };
+            }
         }
+
+        for ext in ["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "heif"] {
+            if extension.eq_ignore_ascii_case(ext) {
+                return "6";
+            }
+        }
+
+        for ext in ["mp3", "wav", "flac", "aac"] {
+            if extension.eq_ignore_ascii_case(ext) {
+                return "7";
+            }
+        }
+
+        for ext in ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm"] {
+            if extension.eq_ignore_ascii_case(ext) {
+                return "8";
+            }
+        }
+
+        for ext in ["zip", "rar", "7z", "tar", "gz"] {
+            if extension.eq_ignore_ascii_case(ext) {
+                return "9";
+            }
+        }
+
+        "0"
     }
 }
 
@@ -1217,8 +1229,15 @@ struct UploadCreateInfo {
 }
 
 impl WopanQueryAllFilesData {
-    fn to_file_list(&self) -> FileList {
-        let items = self.files.iter().map(|f| f.to_meta()).collect();
-        FileList::with_cursor(items, self.files.len() as u64, None)
+    fn into_file_list(self) -> FileList {
+        let items: Vec<_> = self.files.into_iter().map(|f| f.to_meta()).collect();
+        let total = items.len() as u64;
+        FileList::with_cursor(items, total, None)
+    }
+
+    fn into_file_list_with_cursor(self, next_cursor: Option<usize>) -> FileList {
+        let items: Vec<_> = self.files.into_iter().map(|f| f.to_meta()).collect();
+        let total = items.len() as u64;
+        FileList::with_cursor(items, total, next_cursor)
     }
 }

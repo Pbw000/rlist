@@ -64,17 +64,32 @@ impl FileListResponse {
         self.total.unwrap_or_else(|| self.items.len() as u32)
     }
 
-    pub fn files(&self) -> &Vec<McloudFileMeta> {
+    pub fn files(&self) -> &[McloudFileMeta] {
         &self.items
     }
 
-    pub fn next_cursor(&self) -> Option<String> {
-        self.nextPageCursor.clone()
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.nextPageCursor.as_deref()
     }
 
-    pub fn to_file_list(&self) -> crate::storage::model::FileList {
-        let items = self.items.iter().map(|f| f.to_meta()).collect();
-        crate::storage::model::FileList::with_cursor(items, self.total() as u64, self.next_cursor())
+    pub fn into_file_list(self) -> crate::storage::model::FileList {
+        let total = self.total() as u64;
+        let next_cursor = self.nextPageCursor;
+        let items = self.items.into_iter().map(|f| f.to_meta()).collect();
+        crate::storage::model::FileList::with_cursor(
+            items,
+            total,
+            next_cursor.and_then(|s| s.parse::<usize>().ok()),
+        )
+    }
+
+    pub fn into_file_list_with_cursor(
+        self,
+        next_cursor: Option<usize>,
+    ) -> crate::storage::model::FileList {
+        let total = self.total() as u64;
+        let items = self.items.into_iter().map(|f| f.to_meta()).collect();
+        crate::storage::model::FileList::with_cursor(items, total, next_cursor)
     }
 }
 

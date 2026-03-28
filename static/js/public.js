@@ -22,6 +22,12 @@ let pathHistory = [];
 let pathHistoryIndex = -1;
 let isNavigatingHistory = false;
 
+// 分页相关
+let currentCursor = null; // 开始偏移量
+let hasMorePages = false;
+let isLoadingMore = false;
+const PAGE_SIZE = 20;
+
 // 初始化
 document.addEventListener("DOMContentLoaded", () => {
   // 从 URL 参数获取 storage 和 path 参数
@@ -164,28 +170,62 @@ function setView(view) {
 }
 
 /**
- * 加载文件列表
+ * 加载文件列表（支持分页）
  * @param {string} path - 路径
+ * @param {boolean} reset - 是否重置分页
  */
-async function loadFiles(path = currentPath) {
+async function loadFiles(path = currentPath, reset = true) {
   currentPath = path;
   const fileList = document.getElementById("fileList");
   if (!fileList) return;
 
-  fileList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  // 重置分页状态
+  if (reset) {
+    currentCursor = null;
+    hasMorePages = false;
+    filesData = [];
+    fileList.innerHTML =
+      '<div class="loading"><div class="spinner"></div></div>';
+  } else {
+    // 加载更多时显示加载状态
+    if (isLoadingMore) return;
+    isLoadingMore = true;
+
+    // 在列表末尾添加加载提示
+    const loadingIndicator = fileList.querySelector(".loading-more");
+    if (loadingIndicator) {
+      loadingIndicator.style.display = "flex";
+    } else {
+      const indicator = document.createElement("div");
+      indicator.className = "loading-more";
+      indicator.innerHTML =
+        '<div class="spinner spinner-small"></div><span>加载中...</span>';
+      fileList.appendChild(indicator);
+    }
+  }
 
   try {
+    const requestBody = {
+      path: currentPath,
+      per_page: PAGE_SIZE,
+    };
+
+    // 添加游标参数
+    if (currentCursor !== null) {
+      requestBody.cursor = currentCursor;
+    }
+
     const response = await fetch(`${API_BASE}/list`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: currentPath }),
+      body: JSON.stringify(requestBody),
     });
 
     const result = await response.json();
 
     if (result.code === 200 && result.data) {
       const rawItems = result.data.items || [];
-      filesData = rawItems.map((item) => {
+      const newItems = rawItems.map((item) => {
         const isDir = item.File === undefined;
         return {
           name: item.File?.name || item.Directory?.name || "unknown",
@@ -199,25 +239,58 @@ async function loadFiles(path = currentPath) {
           modified: item.File?.modified_at || item.Directory?.modified_at,
         };
       });
-      renderFiles(filesData);
+
+      // 更新分页状态
+      currentCursor = result.data.next_cursor;
+      hasMorePages = currentCursor !== null && currentCursor !== undefined;
+
+      if (reset) {
+        filesData = newItems;
+        renderFiles(filesData);
+      } else {
+        filesData = [...filesData, ...newItems];
+        renderFiles(filesData, false);
+      }
+
+      // 移除加载指示器
+      const loadingIndicator = fileList.querySelector(".loading-more");
+      if (loadingIndicator) {
+        loadingIndicator.remove();
+      }
+
       updateBreadcrumb();
+      isLoadingMore = false;
     } else {
-      fileList.innerHTML =
-        '<div class="empty-state"><i class="ti ti-folder-x"></i><p>加载失败</p></div>';
+      if (reset) {
+        fileList.innerHTML =
+          '<div class="empty-state"><i class="ti ti-folder-x"></i><p>加载失败</p></div>';
+      }
       showToast("加载文件列表失败：" + result.message, "error");
     }
   } catch (error) {
-    fileList.innerHTML =
-      '<div class="empty-state"><i class="ti ti-wifi-off"></i><p>无法连接到服务器</p></div>';
+    if (reset) {
+      fileList.innerHTML =
+        '<div class="empty-state"><i class="ti ti-wifi-off"></i><p>无法连接到服务器</p></div>';
+    }
     showToast("网络错误：" + error.message, "error");
+    isLoadingMore = false;
   }
+}
+
+/**
+ * 加载更多文件
+ */
+async function loadMoreFiles() {
+  if (!hasMorePages || isLoadingMore) return;
+  await loadFiles(currentPath, false);
 }
 
 /**
  * 渲染文件列表
  * @param {Array} files - 文件列表
+ * @param {boolean} fullRender - 是否完全重新渲染
  */
-function renderFiles(files) {
+function renderFiles(files, fullRender = true) {
   const fileList = document.getElementById("fileList");
   if (!fileList) return;
 
@@ -232,14 +305,63 @@ function renderFiles(files) {
   const fileItems = files.filter((f) => f.file_type === "file");
   const sortedFiles = [...dirs, ...fileItems];
 
-  fileList.innerHTML = `
-    <div class="file-list-header">
-        <div>名称</div>
-        <div>大小</div>
-        <div>修改日期</div>
-        <div>操作</div>
-    </div>
-    ${sortedFiles
+  if (fullRender) {
+    // 完全重新渲染
+    fileList.innerHTML = `
+      <div class="file-list-header">
+          <div>名称</div>
+          <div>大小</div>
+          <div>修改日期</div>
+          <div>操作</div>
+      </div>
+      ${sortedFiles
+        .map(
+          (file) => `
+          <div class="file-item"
+               data-path="${escapeHtml(file.path)}"
+               data-type="${file.file_type}"
+               oncontextmenu="showContextMenu(event, '${escapeHtml(file.path)}', '${file.file_type}')">
+              <div class="file-main" onclick="handleFileClick('${escapeHtml(file.path)}', '${file.file_type}', event)">
+                  <div class="file-icon ${file.file_type === "dir" ? "folder" : ""}">${file.file_type === "dir" ? '<i class="ti ti-folder"></i>' : getFileIcon(file.name)}</div>
+                  <div>
+                      <div class="file-name">${escapeHtml(file.name)}</div>
+                      <div class="file-meta">${file.file_type === "file" ? formatSize(file.size) : "文件夹"}</div>
+                  </div>
+              </div>
+              <div class="file-size">${file.file_type === "file" ? formatSize(file.size) : ""}</div>
+              <div class="file-date">${file.modified ? formatDate(file.modified) : ""}</div>
+              <div class="file-actions">
+                  ${
+                    file.file_type === "dir"
+                      ? `
+                      <button class="action-btn" onclick="enterFolderWithAnimation('${escapeHtml(file.path)}')" title="打开">
+                          <i class="ti ti-folder-open"></i>
+                      </button>
+                  `
+                      : `
+                      <button class="action-btn" onclick="previewFile('${escapeHtml(file.path)}', '${escapeHtml(file.name)}')" title="预览">
+                          <i class="ti ti-eye"></i>
+                      </button>
+                      <button class="action-btn" onclick="downloadFile('${escapeHtml(file.path)}')" title="下载">
+                          <i class="ti ti-download"></i>
+                      </button>
+                  `
+                  }
+                  <button class="action-btn" onclick="showContextMenuForFile('${escapeHtml(file.path)}', '${file.file_type}')" title="更多">
+                      <i class="ti ti-dots"></i>
+                  </button>
+              </div>
+          </div>
+      `,
+        )
+        .join("")}
+    `;
+
+    // 添加滚动监听器
+    setupScrollListener();
+  } else {
+    // 增量渲染 - 只追加新项
+    const itemsHtml = sortedFiles
       .map(
         (file) => `
         <div class="file-item"
@@ -279,8 +401,45 @@ function renderFiles(files) {
         </div>
     `,
       )
-      .join("")}
-  `;
+      .join("");
+
+    // 追加到列表末尾（移除加载指示器后再追加）
+    const loadingIndicator = fileList.querySelector(".loading-more");
+    if (loadingIndicator) {
+      loadingIndicator.insertAdjacentHTML("beforebegin", itemsHtml);
+    } else {
+      fileList.insertAdjacentHTML("beforeend", itemsHtml);
+    }
+  }
+}
+
+/**
+ * 设置滚动监听器以加载更多文件
+ */
+function setupScrollListener() {
+  const container = document.querySelector(".file-list-container");
+  if (!container) return;
+
+  // 移除旧的监听器
+  container.removeEventListener("scroll", handleScroll);
+
+  // 添加新的监听器
+  container.addEventListener("scroll", handleScroll);
+}
+
+/**
+ * 滚动处理函数
+ */
+function handleScroll() {
+  const container = document.querySelector(".file-list-container");
+  if (!container) return;
+
+  const { scrollTop, scrollHeight, clientHeight } = container;
+
+  // 当滚动到距离底部 100px 时加载更多
+  if (scrollTop + clientHeight >= scrollHeight - 100) {
+    loadMoreFiles();
+  }
 }
 
 /**
