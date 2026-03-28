@@ -256,7 +256,10 @@ async function loadPublicStorageFiles() {
 
   try {
     fileList.innerHTML =
-      '<div class="loading"><div class="spinner"></div></div>';
+      '<div class="loading-progress loading-progress-indeterminate">' +
+      '<div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>' +
+      '<div class="loading-progress-text">正在加载文件列表...</div>' +
+      "</div>";
 
     // 使用 buildPublicRequest 添加 challenge 验证
     const requestBody = { path: currentStoragePath };
@@ -315,7 +318,10 @@ async function showPublicStorage() {
 
     modal.style.display = "flex";
     content.innerHTML =
-      '<div class="loading"><div class="spinner"></div></div>';
+      '<div class="loading-progress loading-progress-indeterminate">' +
+      '<div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>' +
+      '<div class="loading-progress-text">正在加载存储列表...</div>' +
+      "</div>";
 
     // 获取公开存储列表（从 /api/admin/storage/list 获取）
     const response = await fetch("/api/admin/storage/list", {
@@ -2170,7 +2176,11 @@ function handleModalOverlayClick(event) {
 async function loadPathSelector(path) {
   const content = document.getElementById("pathSelectorContent");
   console.log("加载路径选择器，路径:", path);
-  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  content.innerHTML =
+    '<div class="loading-progress loading-progress-indeterminate">' +
+    '<div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>' +
+    '<div class="loading-progress-text">正在加载目录...</div>' +
+    "</div>";
 
   try {
     const response = await fetch(`${fileManager.apiBase}/fs/list`, {

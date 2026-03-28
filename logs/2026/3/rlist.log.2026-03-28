@@ -1,0 +1,1 @@
+2026-03-28T14:06:26.748024Z  WARN tokio-rt-worker ThreadId(03) security: Authentication failed: Jwt Verify failed client_ip=unknown method=GET request_path=/me error=Invalid token

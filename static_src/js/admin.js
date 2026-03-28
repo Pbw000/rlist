@@ -150,9 +150,9 @@ async function loadUsers() {
   tbody.innerHTML = `
     <tr>
       <td colspan="11" class="empty-cell">
-        <div class="loading">
-          <div class="spinner"></div>
-          <span>加载中...</span>
+        <div class="loading-progress loading-progress-indeterminate">
+          <div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>
+          <div class="loading-progress-text">正在加载用户列表...</div>
         </div>
       </td>
     </tr>
@@ -342,9 +342,9 @@ async function loadStorages() {
   tbody.innerHTML = `
     <tr>
       <td colspan="5" class="empty-cell">
-        <div class="loading">
-          <div class="spinner"></div>
-          <span>加载中...</span>
+        <div class="loading-progress loading-progress-indeterminate">
+          <div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>
+          <div class="loading-progress-text">正在加载存储列表...</div>
         </div>
       </td>
     </tr>

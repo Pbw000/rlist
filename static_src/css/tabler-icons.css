@@ -174,3 +174,36 @@
 .ti-settings:before {
     content: "\eb20";
 }
+.ti-users:before {
+    content: "\f00c";
+}
+.ti-shield-lock:before {
+    content: "\f028";
+}
+.ti-arrow-left:before {
+    content: "\ea0f";
+}
+.ti-menu-2:before {
+    content: "\eac8";
+}
+.ti-user-plus:before {
+    content: "\eb4f";
+}
+.ti-database-plus:before {
+    content: "\ea8a";
+}
+.ti-tag:before {
+    content: "\eb34";
+}
+.ti-truck:before {
+    content: "\eb45";
+}
+.ti-lock:before {
+    content: "\eae2";
+}
+.ti-info-circle:before {
+    content: "\eac5";
+}
+.ti-alert-triangle:before {
+    content: "\ea07";
+}

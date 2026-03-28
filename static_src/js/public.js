@@ -185,7 +185,10 @@ async function loadFiles(path = currentPath, reset = true) {
     hasMorePages = false;
     filesData = [];
     fileList.innerHTML =
-      '<div class="loading"><div class="spinner"></div></div>';
+      '<div class="loading-progress loading-progress-indeterminate">' +
+      '<div class="loading-progress-bar"><div class="loading-progress-fill"></div></div>' +
+      '<div class="loading-progress-text">正在加载文件列表...</div>' +
+      "</div>";
   } else {
     // 加载更多时显示加载状态
     if (isLoadingMore) return;

@@ -289,9 +289,13 @@
             <!-- 文件列表 -->
             <div class="file-list-container">
                 <div class="file-list" id="fileList">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <p class="loading-text">加载中...</p>
+                    <div
+                        class="loading-progress loading-progress-indeterminate"
+                    >
+                        <div class="loading-progress-bar">
+                            <div class="loading-progress-fill"></div>
+                        </div>
+                        <div class="loading-progress-text">加载中...</div>
                     </div>
                 </div>
             </div>
@@ -516,7 +520,16 @@
                 </div>
                 <div class="modal-body">
                     <div id="pathSelectorContent">
-                        <div class="loading"><div class="spinner"></div></div>
+                        <div
+                            class="loading-progress loading-progress-indeterminate"
+                        >
+                            <div class="loading-progress-bar">
+                                <div class="loading-progress-fill"></div>
+                            </div>
+                            <div class="loading-progress-text">
+                                正在加载目录...
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -582,7 +595,16 @@
                         id="publicStorageContent"
                         class="public-storage-content"
                     >
-                        <div class="loading"><div class="spinner"></div></div>
+                        <div
+                            class="loading-progress loading-progress-indeterminate"
+                        >
+                            <div class="loading-progress-bar">
+                                <div class="loading-progress-fill"></div>
+                            </div>
+                            <div class="loading-progress-text">
+                                正在加载存储列表...
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
