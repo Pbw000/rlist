@@ -295,7 +295,7 @@ pub async fn get_upload_info(
                 path: query.path,
                 form_fields: info.form_fields,
                 headers: info.headers,
-                complete_url: info.complete_url,
+                complete_params: info.complete_params,
             };
             ApiResponse::success(resp)
         }
@@ -353,22 +353,22 @@ pub async fn upload_file(
 pub async fn complete_upload(
     State(state): State<AppState>,
     root_dir: Option<Extension<String>>,
-    Query(query): Query<CompleteUploadParams>,
+    Json(req): Json<CompleteUploadRequest>,
 ) -> impl IntoResponse {
-    let full_path = apply_root_dir(&query.path, root_dir.as_ref());
+    let full_path = apply_root_dir(&req.path, root_dir.as_ref());
 
     match state
         .complete_upload(
             &full_path,
-            &query.upload_id,
-            &query.file_id,
-            &query.content_hash,
+            &req.info.upload_id,
+            &req.info.file_id,
+            &req.info.content_hash,
         )
         .await
     {
         Ok(Some(meta)) => {
-            let resp = UploadResult {
-                path: query.path,
+            let resp = CompleteUploadResponse {
+                path: req.path,
                 size: match &meta {
                     Meta::File { size, .. } => *size,
                     Meta::Directory { .. } => 0,
@@ -376,8 +376,8 @@ pub async fn complete_upload(
             };
             ApiResponse::success(resp)
         }
-        Ok(None) => ApiResponse::success(UploadResult {
-            path: query.path,
+        Ok(None) => ApiResponse::success(CompleteUploadResponse {
+            path: req.path,
             size: 0,
         }),
         Err(e) => ApiResponse::error(500, format!("完成上传失败：{}", e)),

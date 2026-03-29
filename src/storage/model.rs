@@ -122,9 +122,17 @@ pub struct UploadInfo {
     /// 上传请求头（如果需要）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<std::collections::HashMap<String, String>>,
-    /// 上传完成回调 URL（Direct 模式下，前端上传完成后需调用此接口通知后端）
+    /// 完成上传参数（Direct 模式下，前端上传完成后需调用 POST /fs/upload/complete 接口并传入此结构）
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub complete_url: Option<String>,
+    pub complete_params: Option<CompleteUploadParams>,
+}
+
+/// 完成上传参数模板
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompleteUploadParams {
+    pub upload_id: String,
+    pub file_id: String,
+    pub content_hash: Hash,
 }
 
 pub trait Storage: Send + Sync {

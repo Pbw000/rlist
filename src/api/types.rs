@@ -1,7 +1,15 @@
+use std::collections::HashMap;
+
 use axum::{Json, response::IntoResponse};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::auth::user_store::UserPermissions;
+use crate::{
+    auth::user_store::UserPermissions,
+    storage::{
+        self,
+        model::{CompleteUploadParams, Hash},
+    },
+};
 
 /// 反序列化 u64，支持字符串或数字格式
 fn deserialize_u64_from_str_or_num<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -114,13 +122,17 @@ pub struct LoginRequest {
     pub claim: String,
 }
 
-/// 完成上传请求参数（Direct 模式）
-#[derive(Debug, Deserialize)]
-pub struct CompleteUploadParams {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CompleteUploadRequest {
     pub path: String,
-    pub upload_id: String,
-    pub file_id: String,
-    pub content_hash: crate::storage::model::Hash,
+    pub info: CompleteUploadParams,
+}
+
+/// 完成上传响应
+#[derive(Debug, Serialize)]
+pub struct CompleteUploadResponse {
+    pub path: String,
+    pub size: u64,
 }
 
 /// 刷新缓存请求
@@ -181,11 +193,12 @@ pub struct UploadInfoResponse {
     pub method: String,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub form_fields: Option<std::collections::HashMap<String, String>>,
+    pub form_fields: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<std::collections::HashMap<String, String>>,
+    pub headers: Option<HashMap<String, String>>,
+    /// 完成上传参数（Direct 模式下，前端上传完成后需调用 POST /fs/upload/complete 接口并传入此结构）
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub complete_url: Option<String>,
+    pub complete_params: Option<CompleteUploadParams>,
 }
 
 /// 上传结果响应
@@ -232,7 +245,7 @@ pub struct FileResponse {
     pub name: String,
     pub url: String,
     pub size: u64,
-    pub hash: crate::storage::model::Hash,
+    pub hash: Hash,
 }
 
 /// 存储信息响应
@@ -280,7 +293,7 @@ pub struct StorageTemplateResponse {
 #[derive(Debug, Deserialize)]
 pub struct AddStorageRequest {
     pub prefix: String,
-    pub driver: crate::storage::all::AllDriverConfigMeta,
+    pub driver: storage::all::AllDriverConfigMeta,
     pub public: Option<bool>,
 }
 

@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "Bash(dir *)"
+      "Bash(dir *)",
+      "Bash(type *)",
+      "Bash(findstr *)"
     ]
   },
   "$version": 3

@@ -386,7 +386,7 @@ impl Storage for LocalStorage {
                 method: "PUT".to_string(),
                 form_fields: None,
                 headers: None,
-                complete_url: None, // 本地存储无需 complete
+                complete_params: None, // 本地存储无需 complete
             })
         }
     }

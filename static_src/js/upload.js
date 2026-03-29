@@ -161,8 +161,14 @@ class UploadManager {
    */
   async uploadDirect(task, uploadInfo) {
     const { file } = task;
-    const { upload_url, method, form_fields, headers, complete_url } =
-      uploadInfo;
+    const {
+      upload_url,
+      method,
+      form_fields,
+      headers,
+      complete_url,
+      complete_params,
+    } = uploadInfo;
 
     // 秒传情况
     if (upload_url === "about:blank") {
@@ -195,6 +201,7 @@ class UploadManager {
             file,
             form_fields,
             task.path,
+            complete_params,
           );
         }
         return true;
@@ -224,6 +231,7 @@ class UploadManager {
             file,
             form_fields,
             task.path,
+            complete_params,
           );
         }
         return true;
@@ -341,48 +349,82 @@ class UploadManager {
    * @param {File} file - 文件
    * @param {Object} formFields - 表单字段
    * @param {string} originalPath - 原始路径
+   * @param {Object} completeParamsFromInfo - 完成上传参数（从 upload_info 响应中获取）
    */
-  async callCompleteUrl(completeUrl, file, formFields, originalPath) {
+  async callCompleteUrl(
+    completeUrl,
+    file,
+    formFields,
+    originalPath,
+    completeParamsFromInfo,
+  ) {
     try {
-      const url = new URL(completeUrl, window.location.origin);
-      const params = new URLSearchParams(url.search);
+      // 优先使用传入的 complete_params，fallback 到旧方式解析
+      let uploadId = "";
+      let fileId = "";
+      let contentHash = null;
 
-      const fileId =
-        params.get("file_id") ||
-        (formFields && formFields.fileId) ||
-        params.get("fileId") ||
-        "";
-      const uploadId =
-        params.get("upload_id") ||
-        (formFields && formFields.uploadId) ||
-        params.get("uploadId") ||
-        "";
+      if (completeParamsFromInfo) {
+        uploadId = completeParamsFromInfo.upload_id || "";
+        fileId = completeParamsFromInfo.file_id || "";
+        contentHash = completeParamsFromInfo.content_hash;
+      }
 
-      const contentHash = await calculateFileHash(file);
+      // 如果没有 complete_params，尝试从 URL 和 formFields 中解析
+      if (!uploadId || !fileId) {
+        const url = new URL(completeUrl, window.location.origin);
+        const params = new URLSearchParams(url.search);
 
-      const completeParams = new URLSearchParams({
+        fileId =
+          fileId ||
+          params.get("file_id") ||
+          (formFields && formFields.fileId) ||
+          params.get("fileId") ||
+          "";
+        uploadId =
+          uploadId ||
+          params.get("upload_id") ||
+          (formFields && formFields.uploadId) ||
+          params.get("uploadId") ||
+          "";
+      }
+
+      // 如果没有 content_hash，计算文件 hash
+      if (!contentHash) {
+        contentHash = { sha256: await calculateFileHash(file) };
+      }
+
+      // 构建完成上传请求体
+      const requestBody = {
         path: originalPath || "",
-        upload_id: uploadId,
-        file_id: fileId,
-        content_hash: JSON.stringify({ sha256: contentHash }),
-      });
-
-      const fullUrl = `${window.location.origin}${url.pathname}?${completeParams.toString()}`;
+        info: {
+          upload_id: uploadId,
+          file_id: fileId,
+          content_hash: contentHash,
+        },
+      };
 
       // 获取认证头
       const authToken = localStorage.getItem("rlist_auth_token");
-      const headers = {};
+      const headers = {
+        "Content-Type": "application/json",
+      };
       if (authToken) {
         headers["AUTH-JWT-TOKEN"] = authToken;
       }
 
+      // 解析 completeUrl，获取路径
+      const url = new URL(completeUrl, window.location.origin);
+      const fullUrl = `${window.location.origin}${url.pathname}`;
+
       const response = await fetch(fullUrl, {
         method: "POST",
         headers: headers,
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
-        console.warn(`调用 complete 接口失败:`, await response.text());
+        console.warn(`调用 complete 接口失败：`, await response.text());
       }
     } catch (error) {
       console.warn(`调用 complete_url 失败:`, error.message);

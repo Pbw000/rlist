@@ -7,7 +7,7 @@ use crate::storage::driver::mcloud::config::McloudConfig;
 use crate::storage::driver::mcloud::error::McloudError;
 use crate::storage::driver::mcloud::types::*;
 use crate::storage::file_meta::DownloadableMeta;
-use crate::storage::model::{FileContent, FileList, FileMeta, Storage};
+use crate::storage::model::{CompleteUploadParams, FileContent, FileList, FileMeta, Storage};
 use crate::storage::radix_tree::RadixTree;
 use crate::storage::url_reader::UrlReader;
 use reqwest::{Client, Method, RequestBuilder, StatusCode};
@@ -433,7 +433,7 @@ impl Storage for McloudStorage {
                 method: "POST".to_string(),
                 form_fields: None,
                 headers: None,
-                complete_url: None,
+                complete_params: None,
             })
         } else {
             // 构建上传请求头
@@ -454,12 +454,11 @@ impl Storage for McloudStorage {
                 method: "PUT".to_string(),
                 form_fields: None, // mcloud 不需要表单字段
                 headers: Some(headers),
-                complete_url: Some(format!(
-                    "/api/fs/upload/complete?path={}&upload_id={}&file_id={}",
-                    params.path, // 使用绝对路径
-                    create_result.upload_id,
-                    create_result.file_id
-                )),
+                complete_params: Some(CompleteUploadParams {
+                    upload_id: create_result.upload_id,
+                    file_id: create_result.file_id,
+                    content_hash: hash,
+                }),
             })
         }
     }
