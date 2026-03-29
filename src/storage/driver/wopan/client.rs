@@ -224,7 +224,7 @@ impl WopanStorage {
             .unwrap()
             .as_millis();
         // req_seq 范围：100000-108999（与 alist wopan-sdk-go 一致）
-        let req_seq: u32 = rand::random::<u32>() % 9000 + 100000;
+        let req_seq: u32 = rand::random_range(100000..=108999);
 
         // 根据 alist wopan-sdk-go 实现，sign = MD5(key + resTime + reqSeq + channel + version)
         let sign = Self::generate_sign(method_key, res_time, req_seq, CHANNEL_WOHOME, "");
@@ -365,9 +365,6 @@ impl Storage for WopanStorage {
         }
         let cache = self.path_cache.read().await;
         if let Some((entry, remainder)) = cache.search(path) {
-            if remainder.trim_start_matches('/').is_empty() {
-                return Ok(());
-            }
             let ancestor_id = entry.file_id().to_owned();
             drop(cache);
             self.build_cache_from_ancestor(&ancestor_id, path, remainder)
@@ -475,8 +472,6 @@ impl Storage for WopanStorage {
 
     async fn download_file(&self, path: &str) -> Result<Box<dyn FileContent>, WopanError> {
         let meta = self.get_download_meta_by_path(path).await?;
-        // dbg!(&meta);
-        // wopan 下载链接不需要额外认证头，直接返回 URL
         let reader = UrlReader::builder(&meta.download_url)
             .header("Origin", "https://pan.wo.cn")
             .header("Referer", "https://pan.wo.cn")

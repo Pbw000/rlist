@@ -104,22 +104,13 @@ impl Storage for McloudStorage {
 
     async fn build_cache(&self, path: &str) -> Result<(), McloudError> {
         if path.is_empty() || path == "/" {
-            // 根路径，直接构建
             self.build_cache_recursive("root", "/").await?;
             return Ok(());
         }
 
         let cache = self.path_cache.read().await;
-        // 搜索最长公共前缀
         if let Some((cached_entry, remainder)) = cache.search(path) {
-            // remainder 是未匹配的后缀部分，如 "/subdir1/subdir2"
             let remainder = remainder.trim_start_matches('/');
-            if remainder.is_empty() {
-                // 完全匹配，无需构建
-                return Ok(());
-            }
-
-            // 克隆 file_id 以避免借用问题
             let ancestor_file_id = cached_entry.file_id().to_string();
             drop(cache);
             // dbg!(&ancestor_file_id);
@@ -925,17 +916,13 @@ impl McloudStorage {
             ancestor_path
         };
 
-        // 逐层构建剩余路径
         let mut current_file_id = ancestor_file_id.to_string();
         let mut current_path = ancestor_path.to_string();
-        // 使用迭代器而不是收集到 Vec
         let mut remaining_parts = remainder.split('/').filter(|s| !s.is_empty());
 
         while let Some(target_name) = remaining_parts.next() {
-            // 获取当前目录下的所有子项
             let mut cursor = None;
             let mut found = false;
-
             loop {
                 let response = self
                     .list_files_internal(&current_file_id, 100, cursor)
