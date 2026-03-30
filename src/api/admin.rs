@@ -307,23 +307,18 @@ pub async fn update_user_root_dir(
         Ok(()) => {
             // 更新内存中的用户信息
             let user_id = state.inner.auth_config.username_to_id(&req.username);
-            if let Some(mut auth_info) = state
-                .inner
-                .auth_config
-                .users
-                .read()
-                .await
-                .get(&user_id)
-                .cloned()
-            {
-                auth_info.root_dir = root_dir_clone;
-                state
-                    .inner
-                    .auth_config
-                    .users
-                    .write()
-                    .await
-                    .insert(user_id, auth_info);
+            // 先获取读锁检查并克隆数据，然后释放读锁
+            let needs_update = {
+                let users_read = state.inner.auth_config.users.read().await;
+                users_read.get(&user_id).is_some()
+            };
+
+            if needs_update {
+                // 释放读锁后再获取写锁进行更新
+                let mut users_write = state.inner.auth_config.users.write().await;
+                if let Some(auth_info) = users_write.get_mut(&user_id) {
+                    auth_info.root_dir = root_dir_clone;
+                }
             }
 
             ApiResponse::success(serde_json::json!({
