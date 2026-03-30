@@ -103,25 +103,57 @@ impl Storage for McloudStorage {
     }
 
     async fn build_cache(&self, path: &str) -> Result<(), McloudError> {
+        tracing::debug!("Building cache for path: {}", path);
+
         if path.is_empty() || path == "/" {
+            tracing::debug!("Building root cache recursively");
             self.build_cache_recursive("root", "/").await?;
             return Ok(());
         }
 
         let cache = self.path_cache.read().await;
         if let Some((cached_entry, remainder)) = cache.search(path) {
-            let remainder = remainder.trim_start_matches('/');
-            let ancestor_file_id = cached_entry.file_id().to_string();
+            tracing::debug!("Found cached entry for path: {}", path);
+            let (path, remainder, ancestor_file_id) =
+                if cached_entry.file_meta.file_type == McloudFileType::File {
+                    let path = path.rsplit_once('/').and_then(|o| Some(o.0)).unwrap_or("/");
+                    tracing::debug!("File found, looking up parent folder at: {}", path);
+                    if let Some((cached_entry, remainder)) = cache.search(path) {
+                        (path, remainder, cached_entry.file_id().to_string())
+                    } else {
+                        tracing::error!("Unexpected parent folder not found for file at: {}", path);
+                        return Err(McloudError::NotFound(
+                            "Unexpected parent folder not found!".to_owned(),
+                        ));
+                    }
+                } else {
+                    (path, remainder, cached_entry.file_id().to_string())
+                };
             drop(cache);
-            // dbg!(&ancestor_file_id);
+            tracing::debug!("Building cache from ancestor: {}", ancestor_file_id);
             self.build_cache_from_ancestor(&ancestor_file_id, path, remainder)
                 .await?;
         } else {
-            // 没有匹配任何缓存，从 root 开始构建
-            drop(cache);
-            self.build_cache_recursive("root", "/").await?;
+            let path = path.rsplit_once('/').and_then(|o| Some(o.0)).unwrap_or("/");
+            tracing::debug!("No direct cache hit, trying parent path: {}", path);
+            if let Some((cached_entry, remainder)) = cache.search(path) {
+                let (path, remainder, ancestor_file_id) =
+                    (path, remainder, cached_entry.file_id().to_string());
+                drop(cache);
+                tracing::debug!(
+                    "Found ancestor in cache, building from: {}",
+                    ancestor_file_id
+                );
+                self.build_cache_from_ancestor(&ancestor_file_id, path, remainder)
+                    .await?;
+            } else {
+                drop(cache);
+                tracing::debug!("No cache hits, building full recursive cache from root");
+                self.build_cache_recursive("root", "/").await?;
+            }
         }
 
+        tracing::debug!("Successfully built cache for path: {}", path);
         Ok(())
     }
 
@@ -463,10 +495,10 @@ impl Storage for McloudStorage {
     ) -> Result<Option<crate::storage::model::FileMeta>, Self::Error> {
         // 调用 /hcy/file/complete API
         #[derive(Serialize)]
-        struct CompleteRequest {
-            fileId: String,
-            uploadId: String,
-            contentHash: String,
+        struct CompleteRequest<'a> {
+            fileId: &'a str,
+            uploadId: &'a str,
+            contentHash: &'a str,
             contentHashAlgorithm: &'static str,
         }
 
@@ -478,9 +510,9 @@ impl Storage for McloudStorage {
         };
 
         let request = CompleteRequest {
-            fileId: file_id.to_string(),
-            uploadId: upload_id.to_string(),
-            contentHash: hash_value.to_string(),
+            fileId: file_id,
+            uploadId: upload_id,
+            contentHash: hash_value,
             contentHashAlgorithm: hash_algo,
         };
 
@@ -495,15 +527,9 @@ impl Storage for McloudStorage {
             .json_request(Method::POST, "/file/complete", &request)
             .await?;
 
-        // 更新缓存
-        let file_path = if path.starts_with('/') {
-            path.to_string()
-        } else {
-            format!("/{}", path)
-        };
-        self.build_cache(&file_path).await?;
+        self.build_cache(&path).await?;
         Ok(self
-            .get_file_meta_by_path(&file_path)
+            .get_file_meta_by_path(&path)
             .await
             .ok()
             .and_then(|v| Some(v.to_meta())))
@@ -927,8 +953,6 @@ impl McloudStorage {
                 let response = self
                     .list_files_internal(&current_file_id, 100, cursor)
                     .await?;
-
-                // 查找目标子项
                 for item in &response.items {
                     if item.name == target_name {
                         // 找到目标，更新当前路径和 file_id
@@ -939,6 +963,10 @@ impl McloudStorage {
                         };
                         current_file_id = item.id.clone();
                         found = true;
+
+                        // 将当前项插入缓存
+                        let cache_entry = CacheEntry::new(item.clone());
+                        self.update_cache(&current_path, cache_entry).await;
 
                         // 如果是文件夹，构建其完整缓存
                         if item.file_type == McloudFileType::Folder {
@@ -976,17 +1004,16 @@ impl McloudStorage {
             let response = self.list_files_internal(file_id, 100, cursor).await?;
 
             // 收集条目
-            for item in &response.items {
+            for item in response.items {
                 let item_path = if path == "/" {
                     format!("/{}", item.name)
                 } else {
                     format!("{}/{}", path, item.name)
                 };
-
-                all_entries.push((item_path.clone(), CacheEntry::new(item.clone())));
                 if item.file_type == McloudFileType::Folder {
                     Box::pin(self.build_cache_recursive(&item.id, &item_path)).await?;
                 }
+                all_entries.push((item_path, CacheEntry::new(item)));
             }
             if response.hasMore.unwrap_or(false) {
                 cursor = response.nextPageCursor;

@@ -363,16 +363,43 @@ impl Storage for WopanStorage {
             self.build_cache_recursive("root", "/").await?;
             return Ok(());
         }
+
         let cache = self.path_cache.read().await;
-        if let Some((entry, remainder)) = cache.search(path) {
-            let ancestor_id = entry.file_id().to_owned();
+        if let Some((cached_entry, remainder)) = cache.search(path) {
+            let (path, remainder, ancestor_file_id) =
+                if cached_entry.file_meta.file_type == WopanFileType::File {
+                    let parent_path = path.rsplit_once('/').map(|o| o.0).unwrap_or("/");
+                    if let Some((parent_entry, parent_remainder)) = cache.search(parent_path) {
+                        (
+                            parent_path,
+                            parent_remainder,
+                            parent_entry.file_id().to_string(),
+                        )
+                    } else {
+                        return Err(WopanError::NotFound(
+                            "Unexpected parent folder not found!".to_owned(),
+                        ));
+                    }
+                } else {
+                    (path, remainder, cached_entry.file_id().to_string())
+                };
             drop(cache);
-            self.build_cache_from_ancestor(&ancestor_id, path, remainder)
+            self.build_cache_from_ancestor(&ancestor_file_id, path, remainder)
                 .await?;
         } else {
-            drop(cache);
-            self.build_cache_recursive("root", "/").await?;
+            let path = path.rsplit_once('/').map(|o| o.0).unwrap_or("/");
+            if let Some((cached_entry, remainder)) = cache.search(path) {
+                let (path, remainder, ancestor_file_id) =
+                    (path, remainder, cached_entry.file_id().to_string());
+                drop(cache);
+                self.build_cache_from_ancestor(&ancestor_file_id, path, remainder)
+                    .await?;
+            } else {
+                drop(cache);
+                self.build_cache_recursive("root", "/").await?;
+            }
         }
+
         Ok(())
     }
 
@@ -1092,6 +1119,11 @@ impl WopanStorage {
                         };
                         current_file_id = item.id.clone();
                         found = true;
+
+                        // 将当前项插入缓存
+                        let cache_entry = CacheEntry::new(item.clone());
+                        self.update_cache(&current_path, cache_entry).await;
+
                         if item.file_type == WopanFileType::Folder {
                             Box::pin(self.build_cache_recursive(&item.id, &current_path)).await?;
                         }
@@ -1117,25 +1149,33 @@ impl WopanStorage {
     async fn build_cache_recursive(&self, file_id: &str, path: &str) -> Result<(), WopanError> {
         let mut all_entries = Vec::new();
         let mut page_num = 0;
+
         loop {
             let response = self.list_files_internal(file_id, page_num, 100).await?;
+
+            // 收集条目
             for item in &response.files {
                 let item_path = if path == "/" {
                     format!("/{}", item.name)
                 } else {
                     format!("{}/{}", path, item.name)
                 };
-                all_entries.push((item_path.clone(), CacheEntry::new(item.clone())));
                 if item.file_type == WopanFileType::Folder {
+                    // 递归构建子目录缓存
                     Box::pin(self.build_cache_recursive(&item.id, &item_path)).await?;
                 }
+                all_entries.push((item_path, CacheEntry::new(item.clone())));
             }
+
             if response.files.len() < 100 {
                 break;
             }
             page_num += 1;
         }
+
+        // 批量更新缓存
         self.update_cache_batch(all_entries).await;
+
         Ok(())
     }
 
