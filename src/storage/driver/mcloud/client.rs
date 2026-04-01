@@ -1007,10 +1007,6 @@ impl McloudStorage {
                 break;
             }
         }
-        // 批量更新缓存
-        if path == "/" {
-            self.path_cache.write().await.clear();
-        }
         self.update_cache_batch(all_entries).await;
 
         Ok(())

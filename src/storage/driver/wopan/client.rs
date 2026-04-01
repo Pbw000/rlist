@@ -1172,9 +1172,7 @@ impl WopanStorage {
             }
             page_num += 1;
         }
-        if path == "/" {
-            self.path_cache.write().await.clear();
-        }
+
         // 批量更新缓存
         self.update_cache_batch(all_entries).await;
 
