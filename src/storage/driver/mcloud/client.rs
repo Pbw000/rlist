@@ -134,23 +134,9 @@ impl Storage for McloudStorage {
             self.build_cache_from_ancestor(&ancestor_file_id, path, remainder)
                 .await?;
         } else {
-            let path = path.rsplit_once('/').and_then(|o| Some(o.0)).unwrap_or("/");
-            tracing::debug!("No direct cache hit, trying parent path: {}", path);
-            if let Some((cached_entry, remainder)) = cache.search(path) {
-                let (path, remainder, ancestor_file_id) =
-                    (path, remainder, cached_entry.file_id().to_string());
-                drop(cache);
-                tracing::debug!(
-                    "Found ancestor in cache, building from: {}",
-                    ancestor_file_id
-                );
-                self.build_cache_from_ancestor(&ancestor_file_id, path, remainder)
-                    .await?;
-            } else {
-                drop(cache);
-                tracing::debug!("No cache hits, building full recursive cache from root");
-                self.build_cache_recursive("root", "/").await?;
-            }
+            drop(cache);
+            tracing::debug!("No cache hits, building full recursive cache from root");
+            self.build_cache_recursive("root", "/").await?;
         }
 
         tracing::debug!("Successfully built cache for path: {}", path);
@@ -1022,6 +1008,9 @@ impl McloudStorage {
             }
         }
         // 批量更新缓存
+        if path == "/" {
+            self.path_cache.write().await.clear();
+        }
         self.update_cache_batch(all_entries).await;
 
         Ok(())
