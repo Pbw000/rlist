@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            http-equiv="Cache-Control"
+            content="no-cache, no-store, must-revalidate"
+        />
+        <meta http-equiv="Pragma" content="no-cache" />
+        <meta http-equiv="Expires" content="0" />
+        <title>RList 管理后台</title>
+        <link rel="stylesheet" href="/css/tabler-icons.css?v=20260328" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="/css/style.css?v=20260328" />
+        <link rel="stylesheet" href="/css/admin.css?v=20260328" />
+    </head>
+    <body>
+        <div class="admin-wrapper">
+            <!-- 侧边栏 -->
+            <aside class="admin-sidebar">
+                <div class="sidebar-header">
+                    <div class="sidebar-logo">
+                        <i class="ti ti-shield-lock"></i>
+                    </div>
+                    <div class="sidebar-title">
+                        <h1>RList</h1>
+                        <span>管理后台</span>
+                    </div>
+                </div>
+                <nav class="sidebar-nav">
+                    <a
+                        href="#"
+                        class="nav-item active"
+                        data-page="users"
+                        onclick="switchPage('users')"
+                    >
+                        <i class="ti ti-users"></i>
+                        <span>用户管理</span>
+                    </a>
+                    <a
+                        href="#"
+                        class="nav-item"
+                        data-page="storages"
+                        onclick="switchPage('storages')"
+                    >
+                        <i class="ti ti-database"></i>
+                        <span>存储管理</span>
+                    </a>
+                </nav>
+                <div class="sidebar-footer">
+                    <a href="/index.html" class="btn btn-secondary btn-block">
+                        <i class="ti ti-arrow-left"></i>
+                        <span>返回主页</span>
+                    </a>
+                </div>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="admin-main">
+                <!-- 顶部栏 -->
+                <header class="admin-header">
+                    <div class="admin-header-left">
+                        <button class="menu-toggle" onclick="toggleSidebar()">
+                            <i class="ti ti-menu-2"></i>
+                        </button>
+                        <h2 id="pageTitle">用户管理</h2>
+                    </div>
+                    <div class="admin-header-right">
+                        <div class="user-info">
+                            <div class="avatar">
+                                <i class="ti ti-user-circle"></i>
+                            </div>
+                            <span id="adminUsername"></span>
+                        </div>
+                        <button
+                            class="btn-icon"
+                            onclick="logout()"
+                            title="退出登录"
+                        >
+                            <i class="ti ti-logout"></i>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- 用户管理页面 -->
+                <div class="admin-content" id="usersPage">
+                    <div class="content-card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="ti ti-users"></i>
+                                <h3>用户列表</h3>
+                            </div>
+                            <div class="card-actions">
+                                <button
+                                    class="btn btn-primary"
+                                    onclick="showAddUserModal()"
+                                >
+                                    <i class="ti ti-user-plus"></i>
+                                    <span>添加用户</span>
+                                </button>
+                                <button
+                                    class="btn btn-ghost"
+                                    onclick="loadUsers()"
+                                >
+                                    <i class="ti ti-refresh"></i>
+                                    <span>刷新</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>用户名</th>
+                                            <th>根目录</th>
+                                            <th>读取</th>
+                                            <th>下载</th>
+                                            <th>上传</th>
+                                            <th>删除</th>
+                                            <th>移动</th>
+                                            <th>复制</th>
+                                            <th>创建目录</th>
+                                            <th>列表</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="usersTableBody">
+                                        <tr>
+                                            <td colspan="10" class="empty-cell">
+                                                <div class="loading">
+                                                    <div class="spinner"></div>
+                                                    <span>加载中...</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 存储管理页面 -->
+                <div
+                    class="admin-content"
+                    id="storagesPage"
+                    style="display: none"
+                >
+                    <div class="content-card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <i class="ti ti-database"></i>
+                                <h3>存储列表</h3>
+                            </div>
+                            <div class="card-actions">
+                                <button
+                                    class="btn btn-primary"
+                                    onclick="showAddStorageModal()"
+                                >
+                                    <i class="ti ti-database-plus"></i>
+                                    <span>添加存储</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>名称</th>
+                                            <th>驱动</th>
+                                            <th>路径</th>
+                                            <th>状态</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="storagesTableBody">
+                                        <tr>
+                                            <td colspan="5" class="empty-cell">
+                                                <div class="loading">
+                                                    <div class="spinner"></div>
+                                                    <span>加载中...</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Add User Modal -->
+        <div class="modal-overlay" id="addUserModal" style="display: none">
+            <div class="modal" style="max-width: 600px">
+                <div class="modal-header">
+                    <h2><i class="ti ti-user-plus"></i> 添加用户</h2>
+                    <button class="modal-close" onclick="hideAddUserModal()">
+                        <i class="ti ti-x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label><i class="ti ti-user"></i> 用户名</label>
+                        <input
+                            type="text"
+                            id="addUsername"
+                            placeholder="请输入用户名"
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label><i class="ti ti-lock"></i> 密码</label>
+                        <input
+                            type="password"
+                            id="addPassword"
+                            placeholder="请输入密码（至少 8 位，包含字母和数字）"
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label
+                            ><i class="ti ti-folder"></i> 根目录（可选）</label
+                        >
+                        <input
+                            type="text"
+                            id="addRootDir"
+                            placeholder="例如：/users/username，留空表示无限制"
+                        />
+                        <p class="form-help">
+                            <i class="ti ti-info-circle"></i>
+                            设置后用户只能访问该目录及其子目录
+                        </p>
+                    </div>
+                    <div class="form-group">
+                        <label class="permission-label">权限设置</label>
+                        <div class="permissions-grid">
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="permRead" checked />
+                                <span>读取</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="permDownload"
+                                    checked
+                                />
+                                <span>下载</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="permUpload"
+                                    checked
+                                />
+                                <span>上传</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="permDelete" />
+                                <span>删除</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="permMove" />
+                                <span>移动</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="permCopy" />
+                                <span>复制</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input
+                                    type="checkbox"
+                                    id="permCreateDir"
+                                    checked
+                                />
+                                <span>创建目录</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="permList" checked />
+                                <span>列表</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button
+                        class="btn btn-secondary"
+                        onclick="hideAddUserModal()"
+                    >
+                        取消
+                    </button>
+                    <button class="btn btn-primary" onclick="confirmAddUser()">
+                        添加
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Permissions Modal -->
+        <div
+            class="modal-overlay"
+            id="editPermissionsModal"
+            style="display: none"
+        >
+            <div class="modal" style="max-width: 600px">
+                <div class="modal-header">
+                    <h2><i class="ti ti-edit"></i> 编辑用户权限</h2>
+                    <button
+                        class="modal-close"
+                        onclick="hideEditPermissionsModal()"
+                    >
+                        <i class="ti ti-x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label><i class="ti ti-user"></i> 用户名</label>
+                        <input type="text" id="editUsername" disabled />
+                    </div>
+                    <div class="form-group">
+                        <label><i class="ti ti-folder"></i> 根目录</label>
+                        <input
+                            type="text"
+                            id="editRootDir"
+                            placeholder="例如：/users/username，留空表示无限制"
+                        />
+                        <p class="form-help">
+                            <i class="ti ti-info-circle"></i>
+                            设置后用户只能访问该目录及其子目录
+                        </p>
+                    </div>
+                    <div class="form-group">
+                        <label class="permission-label">权限设置</label>
+                        <div class="permissions-grid">
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermRead" />
+                                <span>读取</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermDownload" />
+                                <span>下载</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermUpload" />
+                                <span>上传</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermDelete" />
+                                <span>删除</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermMove" />
+                                <span>移动</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermCopy" />
+                                <span>复制</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermCreateDir" />
+                                <span>创建目录</span>
+                            </label>
+                            <label class="permission-checkbox">
+                                <input type="checkbox" id="editPermList" />
+                                <span>列表</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button
+                        class="btn btn-secondary"
+                        onclick="hideEditPermissionsModal()"
+                    >
+                        取消
+                    </button>
+                    <button
+                        class="btn btn-primary"
+                        onclick="confirmEditPermissions()"
+                    >
+                        保存
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Storage Modal -->
+        <div class="modal-overlay" id="addStorageModal" style="display: none">
+            <div class="modal">
+                <div class="modal-header">
+                    <h2><i class="ti ti-database-plus"></i> 添加存储</h2>
+                    <button class="modal-close" onclick="hideAddStorageModal()">
+                        <i class="ti ti-x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label><i class="ti ti-tag"></i> 存储前缀</label>
+                        <input
+                            type="text"
+                            id="storagePrefix"
+                            placeholder="例如：mycloud"
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label><i class="ti ti-truck"></i> 存储驱动</label>
+                        <select id="storageDriver" onchange="onDriverChange()">
+                            <option value="">请选择驱动</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="ti ti-settings"></i> 存储配置</label>
+                        <div id="storageConfigContainer"></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="permission-checkbox">
+                            <input type="checkbox" id="storagePublic" />
+                            <span>公开存储（无需认证即可访问）</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button
+                        class="btn btn-secondary"
+                        onclick="hideAddStorageModal()"
+                    >
+                        取消
+                    </button>
+                    <button
+                        class="btn btn-primary"
+                        onclick="confirmAddStorage()"
+                    >
+                        添加
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div id="toastContainer"></div>
+
+        <script src="/js/utils.js?v=20260328"></script>
+        <script src="/js/api.js?v=20260328"></script>
+        <script src="/js/admin.js?v=20260328"></script>
+    </body>
+</html>

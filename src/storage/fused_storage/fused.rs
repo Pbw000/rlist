@@ -1,0 +1,583 @@
+use std::sync::Arc;
+
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+use crate::error::{RlistError, StorageError};
+use crate::storage::file_meta::Meta;
+use crate::storage::model::{FileContent, FileList, UploadInfoParams};
+use crate::{Storage, storage::radix_tree::RadixTree};
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DriverWithPrefix<T> {
+    pub prefix: String,
+    pub driver: Arc<T>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct FusedStorage<T: Storage> {
+    drivers: Vec<DriverWithPrefix<T>>,
+    tree: RadixTree<Arc<T>>,
+}
+
+impl<T: Storage> FusedStorage<T> {
+    pub fn new() -> Self {
+        Self {
+            drivers: Vec::new(),
+            tree: RadixTree::new(),
+        }
+    }
+    pub fn from_drivers(drivers: Vec<DriverWithPrefix<T>>) -> Self {
+        let mut tree = RadixTree::new();
+        for driver in &drivers {
+            tree.insert(&driver.prefix, driver.driver.clone());
+        }
+        Self { drivers, tree }
+    }
+
+    pub fn add_driver<U: Into<T>>(&mut self, driver: U, prefix: &str) {
+        let driver = Arc::new(driver.into());
+        let prefix = prefix.trim_end_matches('/').to_string();
+        self.drivers.push(DriverWithPrefix {
+            prefix: prefix.clone(),
+            driver: driver.clone(),
+        });
+        self.tree.insert(&prefix, driver);
+    }
+    pub fn remove_by_idx(&mut self, idx: usize) -> Option<Arc<T>> {
+        if idx >= self.drivers.len() {
+            tracing::warn!(
+                "remove_by_idx: index {} out of bounds (drivers.len() = {})",
+                idx,
+                self.drivers.len()
+            );
+            return None;
+        }
+        let driver = self.drivers.remove(idx);
+        tracing::info!(
+            "remove_by_idx: removing driver with prefix '{}' at index {}",
+            driver.prefix,
+            idx
+        );
+        self.tree.remove(&driver.prefix)
+    }
+    pub fn add_driver_arc(&mut self, driver: Arc<T>, prefix: &str) {
+        let prefix = prefix.trim_end_matches('/').to_string();
+        self.drivers.push(DriverWithPrefix {
+            prefix: prefix.clone(),
+            driver: driver.clone(),
+        });
+        self.tree.insert(&prefix, driver);
+    }
+
+    pub fn remove_driver(&mut self, prefix: &str) -> Option<Arc<T>> {
+        let prefix = prefix.trim_end_matches('/');
+        let removed = self.tree.remove(prefix);
+        if let Some(idx) = self.drivers.iter().position(|d| d.prefix == prefix) {
+            self.drivers.remove(idx);
+        }
+        removed
+    }
+
+    pub fn drivers_with_prefix(&self) -> &[DriverWithPrefix<T>] {
+        &self.drivers
+    }
+
+    pub fn drivers(&self) -> Vec<&Arc<T>> {
+        self.drivers.iter().map(|d| &d.driver).collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.drivers.clear();
+        self.tree.clear();
+    }
+
+    pub fn get_driver<'a>(&'a self, path: &'a str) -> Option<(&'a Arc<T>, &'a str)> {
+        self.tree.search(path)
+    }
+}
+
+impl<T: Storage> Default for FusedStorage<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Storage + 'static> FusedStorage<T> {
+    pub async fn copy(&self, src_path: &str, dest_path: &str) -> Result<(), RlistError> {
+        let meta = self.gen_copy_meta(src_path).await?;
+        match self.copy_end_to_end(meta, dest_path).await {
+            Ok(_) => Ok(()),
+            Err(RlistError::MetaMissMatch) => {
+                tracing::info!("End to end copy is not supported! Fallback to relay mode.",);
+                self.copy_relay(src_path, dest_path).await?;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn move_file_recusive(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+    ) -> Result<(), RlistError> {
+        let meta = self.gen_move_meta(src_path).await?;
+        match self.move_end_to_end(meta, dest_path).await {
+            Ok(_) => Ok(()),
+            Err(RlistError::MetaMissMatch) => {
+                tracing::info!("End to end move is not supported! Fallback to relay mode.");
+                self.move_file(src_path, dest_path).await?;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+pub struct DriverMeta<T: Storage>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    path: String,
+    config: T::ConfigMeta,
+}
+
+impl<T: Storage> Serialize for DriverMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("DriverMeta", 2)?;
+        state.serialize_field("path", &self.path)?;
+        state.serialize_field("config", &self.config)?;
+        state.end()
+    }
+}
+
+impl<'de, T: Storage> Deserialize<'de> for DriverMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<C> {
+            path: String,
+            config: C,
+        }
+        let helper = Helper::deserialize(deserializer)?;
+        Ok(DriverMeta {
+            path: helper.path,
+            config: helper.config,
+        })
+    }
+}
+pub struct ConfigMeta<T: Storage> {
+    drivers: Vec<DriverMeta<T>>,
+}
+impl<T: Storage> ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    pub fn new() -> Self {
+        Self {
+            drivers: Vec::new(),
+        }
+    }
+}
+impl<T: Storage> Serialize for ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("ConfigMeta", 1)?;
+        state.serialize_field("drivers", &self.drivers)?;
+        state.end()
+    }
+}
+
+impl<'de, T: Storage> Deserialize<'de> for ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<C> {
+            drivers: Vec<DriverMetaWithConfig<C>>,
+        }
+
+        #[derive(Deserialize)]
+        struct DriverMetaWithConfig<C> {
+            path: String,
+            config: C,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        let drivers = helper
+            .drivers
+            .into_iter()
+            .map(|d| DriverMeta {
+                path: d.path,
+                config: d.config,
+            })
+            .collect();
+        Ok(ConfigMeta { drivers })
+    }
+}
+
+impl<T: Storage> Default for ConfigMeta<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    fn default() -> Self {
+        Self {
+            drivers: vec![DriverMeta {
+                path: "/".to_string(),
+                config: T::ConfigMeta::default(),
+            }],
+        }
+    }
+}
+impl<T: Storage + 'static> Storage for FusedStorage<T>
+where
+    T::ConfigMeta: Serialize + DeserializeOwned,
+{
+    type Error = RlistError;
+    type End2EndCopyMeta = T::End2EndCopyMeta;
+    type End2EndMoveMeta = T::End2EndMoveMeta;
+    type ConfigMeta = ConfigMeta<T>;
+    fn hash(&self) -> u64 {
+        use std::hash::Hasher;
+        let hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = hasher;
+        for driver_with_prefix in &self.drivers {
+            hasher.write_u64(driver_with_prefix.driver.hash());
+        }
+        hasher.finish()
+    }
+    fn name(&self) -> &str {
+        "FusedStorage"
+    }
+
+    fn driver_name(&self) -> &str {
+        "fused"
+    }
+
+    async fn handle_path(&self, path: &str) -> Result<Meta, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => driver
+                .handle_path(remaining_path)
+                .await
+                .map_err(|e| e.into()),
+            None => {
+                // 如果没有找到且为根目录，返回根目录元数据
+                if path.is_empty() || path == "/" {
+                    Ok(Meta::directory("/"))
+                } else {
+                    Err(RlistError::Storage(StorageError::NotFound(
+                        "路径未找到".to_string(),
+                    )))
+                }
+            }
+        }
+    }
+
+    async fn list_files(
+        &self,
+        path: &str,
+        page_size: u32,
+        cursor: Option<usize>,
+    ) -> Result<FileList, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => driver
+                .list_files(remaining_path, page_size, cursor)
+                .await
+                .map_err(|e| e.into()),
+            None => {
+                if path.is_empty() || path == "/" {
+                    let children = self.tree.search_children("/");
+                    let items = children
+                        .iter()
+                        .map(|(prefix, _)| Meta::directory(prefix.clone()))
+                        .collect::<Vec<_>>();
+                    let len = items.len() as u64;
+                    Ok(FileList::new(items, len))
+                } else {
+                    Err(RlistError::Storage(StorageError::NotFound(
+                        "路径未找到".to_string(),
+                    )))
+                }
+            }
+        }
+    }
+
+    async fn get_meta(&self, path: &str) -> Result<Meta, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => {
+                driver.get_meta(remaining_path).await.map_err(|e| e.into())
+            }
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn get_download_meta_by_path(
+        &self,
+        path: &str,
+    ) -> Result<crate::storage::file_meta::DownloadableMeta, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => driver
+                .get_download_meta_by_path(remaining_path)
+                .await
+                .map_err(|e| e.into()),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn build_cache(&self, path: &str) -> Result<(), Self::Error> {
+        let mut joinset = tokio::task::JoinSet::new();
+        let path = path.trim_end_matches('/');
+        if path.is_empty() {
+            for driver_with_prefix in &self.drivers {
+                let driver = driver_with_prefix.driver.clone();
+                joinset.spawn(async move { driver.build_cache("/").await });
+            }
+        } else {
+            for (tree_path, driver) in self.tree.iter_path() {
+                if path.starts_with(&tree_path) {
+                    let driver = driver.clone();
+                    let rel_path = path[tree_path.len()..].to_string();
+                    joinset.spawn(async move { driver.build_cache(&rel_path).await });
+                } else if tree_path.starts_with(path) {
+                    let driver = driver.clone();
+                    joinset.spawn(async move { driver.build_cache("/").await });
+                }
+            }
+        }
+
+        while let Some(res) = joinset.join_next().await {
+            if let Err(e) = res {
+                return Err(RlistError::Storage(StorageError::OperationFailed(format!(
+                    "构建缓存失败: {}",
+                    e
+                ))));
+            }
+        }
+        Ok(())
+    }
+
+    async fn download_file(&self, path: &str) -> Result<Box<dyn FileContent>, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => driver
+                .download_file(remaining_path)
+                .await
+                .map_err(|e| e.into()),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn create_folder(&self, path: &str) -> Result<Meta, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => driver
+                .create_folder(remaining_path)
+                .await
+                .map_err(|e| e.into()),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn delete(&self, path: &str) -> Result<(), Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => {
+                driver.delete(remaining_path).await.map_err(|e| e.into())
+            }
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn rename(&self, old_path: &str, new_name: &str) -> Result<(), Self::Error> {
+        match self.get_driver(old_path) {
+            Some((driver, remaining_path)) => driver
+                .rename(remaining_path, new_name)
+                .await
+                .map_err(|e| e.into()),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn copy_end_to_end(
+        &self,
+        source_meta: Self::End2EndCopyMeta,
+        dest_path: &str,
+    ) -> Result<(), Self::Error> {
+        // 获取目标驱动和路径
+        let (dest_drive, dest_remaining_path) =
+            self.get_driver(dest_path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Dest storage not found!".to_owned(),
+                )))?;
+        dest_drive
+            .copy_end_to_end(source_meta, dest_remaining_path)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn gen_copy_meta(&self, path: &str) -> Result<Self::End2EndCopyMeta, Self::Error> {
+        let (driver, remaining_path) =
+            self.get_driver(path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Driver not found".to_string(),
+                )))?;
+        // 使用源驱动生成 meta
+        driver
+            .gen_copy_meta(remaining_path)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn move_end_to_end(
+        &self,
+        source_meta: Self::End2EndMoveMeta,
+        dest_path: &str,
+    ) -> Result<(), Self::Error> {
+        // 获取目标驱动和路径
+        let (dest_drive, dest_remaining_path) =
+            self.get_driver(dest_path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Dest storage not found!".to_owned(),
+                )))?;
+        dest_drive
+            .move_end_to_end(source_meta, dest_remaining_path)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn gen_move_meta(&self, path: &str) -> Result<Self::End2EndMoveMeta, Self::Error> {
+        let (driver, remaining_path) =
+            self.get_driver(path)
+                .ok_or(RlistError::Storage(StorageError::NotFound(
+                    "Driver not found".to_string(),
+                )))?;
+        // 使用源驱动生成 meta
+        driver
+            .gen_move_meta(remaining_path)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn upload_file<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
+        &self,
+        path: &str,
+        content: R,
+        param: UploadInfoParams,
+    ) -> Result<Meta, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => {
+                let remaining_param = UploadInfoParams {
+                    path: remaining_path.to_string(),
+                    size: param.size,
+                    hash: param.hash,
+                };
+                driver
+                    .upload_file(remaining_path, content, remaining_param)
+                    .await
+                    .map_err(|e| e.into())
+            }
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn get_upload_info(
+        &self,
+        params: crate::storage::model::UploadInfoParams,
+    ) -> Result<crate::storage::model::UploadInfo, Self::Error> {
+        match self.get_driver(&params.path) {
+            Some((driver, remaining_path)) => driver
+                .get_upload_info(crate::storage::model::UploadInfoParams {
+                    path: remaining_path.to_string(),
+                    size: params.size,
+                    hash: params.hash,
+                })
+                .await
+                .map_err(|e| e.into()),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    async fn complete_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        file_id: &str,
+        content_hash: &crate::storage::model::Hash,
+    ) -> Result<Option<crate::storage::model::FileMeta>, Self::Error> {
+        match self.get_driver(path) {
+            Some((driver, remaining_path)) => driver
+                .complete_upload(remaining_path, upload_id, file_id, content_hash)
+                .await
+                .map_err(|e| e.into()),
+            None => Err(RlistError::Storage(StorageError::NotFound(
+                "路径未找到".to_string(),
+            ))),
+        }
+    }
+
+    fn from_auth_data(data: Self::ConfigMeta) -> Result<Self, Self::Error> {
+        let drivers = data
+            .drivers
+            .into_iter()
+            .map(|meta| {
+                let driver = T::from_auth_data(meta.config).map_err(|e| e.into())?;
+                Ok::<_, Self::Error>(DriverWithPrefix {
+                    prefix: meta.path,
+                    driver: Arc::new(driver),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self::from_drivers(drivers))
+    }
+    fn to_auth_data(&self) -> Self::ConfigMeta {
+        let drivers = self
+            .drivers
+            .iter()
+            .map(|driver| DriverMeta {
+                path: driver.prefix.clone(),
+                config: driver.driver.to_auth_data(),
+            })
+            .collect();
+        ConfigMeta { drivers }
+    }
+
+    fn auth_template() -> Self::ConfigMeta {
+        Self::ConfigMeta::default()
+    }
+}

@@ -1,0 +1,10 @@
+/target
+*.db
+/build
+storage.toml
+/static
+logs/
+.qwen/
+.env
+.env.local
+*.log

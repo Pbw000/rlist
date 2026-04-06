@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            http-equiv="Cache-Control"
+            content="no-cache, no-store, must-revalidate"
+        />
+        <meta http-equiv="Pragma" content="no-cache" />
+        <meta http-equiv="Expires" content="0" />
+        <title>RList 公开访问</title>
+        <link rel="stylesheet" href="/css/tabler-icons.css?v=20260328" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="/css/style.css?v=20260328" />
+        <link rel="stylesheet" href="/css/public.css?v=20260328" />
+    </head>
+    <body>
+        <div class="container">
+            <!-- 顶部导航栏 -->
+            <header class="navbar public-navbar">
+                <div class="navbar-left">
+                    <div class="logo">
+                        <div class="logo-icon-small">
+                            <i class="ti ti-folder"></i>
+                        </div>
+                        <span class="logo-text">RList</span>
+                    </div>
+
+                    <!-- 路径导航历史按钮 -->
+                    <div class="nav-history">
+                        <button
+                            class="nav-history-btn"
+                            onclick="goBack()"
+                            title="后退"
+                            id="backBtn"
+                            disabled
+                        >
+                            <i class="ti ti-chevron-left"></i>
+                        </button>
+                        <button
+                            class="nav-history-btn"
+                            onclick="goForward()"
+                            title="前进"
+                            id="forwardBtn"
+                            disabled
+                        >
+                            <i class="ti ti-chevron-right"></i>
+                        </button>
+                    </div>
+
+                    <!-- 面包屑导航（可编辑模式） -->
+                    <div class="breadcrumb-container" id="breadcrumbContainer">
+                        <div class="breadcrumb" id="breadcrumb">
+                            <a
+                                href="#"
+                                onclick="
+                                    navigateTo('/');
+                                    return false;
+                                "
+                                class="breadcrumb-item"
+                            >
+                                <i class="ti ti-home"></i>
+                                <span>首页</span>
+                            </a>
+                        </div>
+                        <!-- 路径输入框（点击编辑时显示） -->
+                        <div
+                            class="path-input-wrapper"
+                            id="pathInputWrapper"
+                            style="display: none"
+                        >
+                            <input
+                                type="text"
+                                class="path-input"
+                                id="pathInput"
+                                placeholder="输入路径..."
+                                autocomplete="off"
+                            />
+                            <button
+                                class="path-input-confirm"
+                                onclick="confirmPathInput()"
+                                title="确认"
+                            >
+                                <i class="ti ti-check"></i>
+                            </button>
+                            <button
+                                class="path-input-cancel"
+                                onclick="cancelPathInput()"
+                                title="取消"
+                            >
+                                <i class="ti ti-x"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 编辑路径按钮 -->
+                    <button
+                        class="edit-path-btn"
+                        onclick="togglePathInput()"
+                        title="编辑路径"
+                    >
+                        <i class="ti ti-edit"></i>
+                    </button>
+
+                    <div
+                        class="storage-badge"
+                        id="storageBadge"
+                        style="display: none"
+                    >
+                        <i class="ti ti-world"></i>
+                        <span id="storageBadgeName"></span>
+                    </div>
+                </div>
+                <div class="navbar-right">
+                    <div class="search-box">
+                        <i class="ti ti-search"></i>
+                        <input
+                            type="text"
+                            id="searchInput"
+                            placeholder="搜索文件..."
+                        />
+                    </div>
+                    <div class="navbar-actions">
+                        <a href="/index.html" class="btn btn-primary">
+                            <i class="ti ti-login"></i>
+                            <span>登录</span>
+                        </a>
+                        <button
+                            class="theme-toggle"
+                            onclick="toggleTheme()"
+                            title="切换主题"
+                        >
+                            <i class="ti ti-moon" id="themeIcon"></i>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 工具栏 -->
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <button class="btn btn-ghost" onclick="refresh()">
+                        <i class="ti ti-refresh"></i>
+                        <span>刷新</span>
+                    </button>
+                </div>
+                <div class="toolbar-right">
+                    <div class="view-toggle">
+                        <button
+                            class="active"
+                            id="listViewBtn"
+                            onclick="setView('list')"
+                            title="列表视图"
+                        >
+                            <i class="ti ti-list"></i>
+                        </button>
+                        <button
+                            id="gridViewBtn"
+                            onclick="setView('grid')"
+                            title="网格视图"
+                        >
+                            <i class="ti ti-grid-dots"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 文件列表 -->
+            <div class="file-list-container">
+                <div class="file-list" id="fileList">
+                    <div
+                        class="loading-progress loading-progress-indeterminate"
+                    >
+                        <div class="loading-progress-bar">
+                            <div class="loading-progress-fill"></div>
+                        </div>
+                        <div class="loading-progress-text">加载中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 页脚 -->
+            <footer class="footer">
+                <p>
+                    <i class="ti ti-folder-open"></i>
+                    <span>公开访问模式 - 仅支持浏览和下载</span>
+                </p>
+            </footer>
+        </div>
+
+        <!-- 预览模态框 -->
+        <div class="modal-overlay" id="previewModal" style="display: none">
+            <div class="modal preview-modal">
+                <div class="preview-header">
+                    <h2>
+                        <i class="ti ti-eye"></i>
+                        <span id="previewFileName">文件预览</span>
+                    </h2>
+                    <div class="preview-controls">
+                        <button
+                            class="preview-control-btn"
+                            onclick="zoomOut()"
+                            title="缩小"
+                        >
+                            <i class="ti ti-minus"></i>
+                        </button>
+                        <span id="zoomLevel">100%</span>
+                        <button
+                            class="preview-control-btn"
+                            onclick="zoomIn()"
+                            title="放大"
+                        >
+                            <i class="ti ti-plus"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="rotatePreview()"
+                            title="旋转"
+                        >
+                            <i class="ti ti-rotate"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="downloadFromPreview()"
+                            title="下载"
+                        >
+                            <i class="ti ti-download"></i>
+                        </button>
+                        <button
+                            class="preview-control-btn"
+                            onclick="hidePreviewModal()"
+                            title="关闭"
+                        >
+                            <i class="ti ti-x"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="preview-content" id="previewContent">
+                    <div class="preview-placeholder">
+                        <i class="ti ti-file"></i>
+                        <p>加载中...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右键菜单 -->
+        <div class="context-menu" id="contextMenu" style="display: none"></div>
+
+        <!-- JS 模块 -->
+        <script
+            src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
+            async
+        ></script>
+        <script>
+            // 配置 PDF.js worker
+            if (typeof pdfjsLib !== "undefined") {
+                pdfjsLib.GlobalWorkerOptions.workerSrc =
+                    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+            }
+            // 后台预加载 PDF.js
+            window.addEventListener("load", () => {
+                // 预加载 PDF.js worker
+                if (typeof pdfjsLib !== "undefined") {
+                    console.log("PDF.js 已加载");
+                }
+            });
+        </script>
+        <script src="/js/utils.js?v=20260328"></script>
+        <script src="/js/public.js?v=20260328"></script>
+    </body>
+</html>

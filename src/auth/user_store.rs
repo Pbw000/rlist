@@ -1,0 +1,590 @@
+use axum::http::StatusCode;
+use chrono::{DateTime, Utc};
+use rand::{Rng, RngExt};
+use ring::digest::{Context, SHA512};
+use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use std::time::Duration;
+use tokio::fs::File;
+use tracing::{error, warn};
+
+const SALT_LENGTH: usize = 32;
+const MAX_FAIL_COUNT: u32 = 5;
+const BAN_DURATION: Duration = Duration::from_secs(600);
+const MIN_PASSWORD_LENGTH: usize = 8;
+const MAX_USERNAME_LENGTH: usize = 64;
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct UserPermissions {
+    pub read: bool,
+    pub download: bool,
+    pub upload: bool,
+    pub delete: bool,
+    pub move_obj: bool,
+    pub copy: bool,
+    pub create_dir: bool,
+    pub list: bool,
+}
+
+/// 用户配置（包含权限和根目录）
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct UserConfig {
+    pub permissions: UserPermissions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_dir: Option<String>,
+}
+
+impl UserPermissions {
+    /// 转换为位掩码
+    pub fn to_bits(&self) -> u8 {
+        let mut bits: u8 = 0;
+        if self.read {
+            bits |= 1 << 0;
+        }
+        if self.download {
+            bits |= 1 << 1;
+        }
+        if self.upload {
+            bits |= 1 << 2;
+        }
+        if self.delete {
+            bits |= 1 << 3;
+        }
+        if self.move_obj {
+            bits |= 1 << 4;
+        }
+        if self.copy {
+            bits |= 1 << 5;
+        }
+        if self.create_dir {
+            bits |= 1 << 6;
+        }
+        if self.list {
+            bits |= 1 << 7;
+        }
+        bits
+    }
+
+    /// 从位掩码创建
+    pub fn from_bits(bits: u8) -> Self {
+        UserPermissions {
+            read: bits & (1 << 0) != 0,
+            download: bits & (1 << 1) != 0,
+            upload: bits & (1 << 2) != 0,
+            delete: bits & (1 << 3) != 0,
+            move_obj: bits & (1 << 4) != 0,
+            copy: bits & (1 << 5) != 0,
+            create_dir: bits & (1 << 6) != 0,
+            list: bits & (1 << 7) != 0,
+        }
+    }
+
+    /// 默认用户权限（只读 + 上传 + 列表 + 创建目录）
+    pub fn default_user() -> Self {
+        UserPermissions {
+            read: true,
+            download: true,
+            upload: true,
+            delete: false,
+            move_obj: false,
+            copy: false,
+            create_dir: true,
+            list: true,
+        }
+    }
+
+    /// 管理员权限（所有权限）
+    pub fn admin() -> Self {
+        UserPermissions {
+            read: true,
+            download: true,
+            upload: true,
+            delete: true,
+            move_obj: true,
+            copy: true,
+            create_dir: true,
+            list: true,
+        }
+    }
+}
+
+/// 用户凭证信息（持久化存储：用户名 -> salt + 密码哈希 + 权限）
+#[derive(Clone, Debug)]
+pub struct UserCredentials {
+    pub salt: [u8; SALT_LENGTH],
+    pub password_hash: String,
+    pub permissions: UserPermissions,
+}
+
+/// 用户凭证存储
+#[derive(Clone)]
+pub struct UserCredentialsStore {
+    pool: SqlitePool,
+}
+
+impl UserCredentialsStore {
+    pub async fn new<P: AsRef<std::path::Path>>(database_url: P) -> Result<Self, sqlx::Error> {
+        // Create parent directory if it doesn't exist
+        let path = database_url.as_ref();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+            File::create_new(path).await.ok();
+        }
+        let pool = SqlitePool::connect(path.to_str().unwrap()).await?;
+        sqlx::query(
+            r#"
+        CREATE TABLE IF NOT EXISTS user_credentials (
+            username TEXT PRIMARY KEY NOT NULL,
+            salt BLOB NOT NULL,
+            password_hash TEXT NOT NULL,
+            permissions INTEGER NOT NULL DEFAULT 255,
+            root_dir TEXT,
+            fail_count INTEGER NOT NULL DEFAULT 0,
+            ban_exp DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+        )
+        .execute(&pool)
+        .await?;
+
+        // 添加 root_dir 列（如果不存在）
+        sqlx::query("ALTER TABLE user_credentials ADD COLUMN root_dir TEXT")
+            .execute(&pool)
+            .await
+            .ok();
+
+        Ok(UserCredentialsStore { pool })
+    }
+
+    /// 注册用户凭证
+    pub async fn register(
+        &self,
+        username: &str,
+        password: &str,
+        permissions: UserPermissions,
+        root_dir: Option<String>,
+    ) -> Result<(), (StatusCode, String)> {
+        // 验证用户名
+        if username.is_empty() || username.len() > MAX_USERNAME_LENGTH {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("用户名长度必须在 1-{} 个字符之间", MAX_USERNAME_LENGTH),
+            ));
+        }
+
+        // 验证密码强度
+        if password.len() < MIN_PASSWORD_LENGTH {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("密码长度至少为 {} 个字符", MIN_PASSWORD_LENGTH),
+            ));
+        }
+
+        // 检查用户名是否已存在
+        let exists: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")
+                .bind(&username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("注册时数据库错误：{}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        if exists.is_some() {
+            return Err((StatusCode::CONFLICT, "用户名已存在".to_string()));
+        }
+
+        // 生成随机 salt
+        let mut salt = [0u8; SALT_LENGTH];
+        rand::rng().fill_bytes(&mut salt);
+
+        // 生成密码哈希 (salt + username + password)
+        let password_hash = hash_password_sha512(&password, &username, &salt);
+
+        // 存储凭证到数据库
+        sqlx::query(
+            "INSERT INTO user_credentials (username, salt, password_hash, permissions, root_dir) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&username)
+        .bind(&salt.as_slice())
+        .bind(&password_hash)
+        .bind(&permissions.to_bits())
+        .bind(&root_dir)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            error!("注册用户凭证时数据库错误：{}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "服务器内部错误".to_string(),
+            )
+        })?;
+
+        Ok(())
+    }
+
+    /// 验证用户凭证并返回用户配置（包含权限和根目录）
+    pub async fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<UserConfig, (StatusCode, String)> {
+        // 从数据库获取用户凭证（包括 fail_count 和 ban_exp 和 root_dir）
+        let result: Option<(Vec<u8>, String, u8, Option<String>, i32, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT salt, password_hash, permissions, root_dir, fail_count, ban_exp FROM user_credentials WHERE username = ?",
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            error!("认证时数据库错误：{}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "服务器内部错误".to_string(),
+            )
+        })?;
+
+        let (salt_bytes, stored_hash, permissions_bits, root_dir, fail_count, ban_exp) =
+            match result {
+                Some((salt, hash, perms, root, fails, ban)) => {
+                    (salt, hash, perms, root, fails, ban)
+                }
+                None => {
+                    // 用户不存在时也要消耗时间，防止时序攻击
+                    let delay = rand::rng().random_range(100..=2000);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    warn!("用户 '{}' 不存在", username);
+                    return Err((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()));
+                }
+            };
+
+        // 检查账户是否处于封禁状态
+        if let Some(ban_time) = ban_exp {
+            if Utc::now() < ban_time {
+                warn!("用户 '{}' 处于封禁状态", username);
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "账户已被封禁，请稍后再试".to_string(),
+                ));
+            } else {
+                // 封禁已过期，重置 fail_count 和 ban_exp
+                sqlx::query(
+                    "UPDATE user_credentials SET fail_count = 0, ban_exp = NULL WHERE username = ?",
+                )
+                .bind(username)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("重置封禁状态时数据库错误：{}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+            }
+        }
+
+        // 验证密码 (使用存储的 salt)
+        let salt: [u8; SALT_LENGTH] = salt_bytes.try_into().map_err(|_| {
+            error!("用户 '{}' salt 格式错误", username);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "服务器内部错误".to_string(),
+            )
+        })?;
+
+        let input_hash = hash_password_sha512(password, username, &salt);
+        if stored_hash != input_hash {
+            let delay = rand::rng().random_range(100..=2000);
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            let new_fail_count = fail_count + 1;
+            if new_fail_count >= MAX_FAIL_COUNT as i32 {
+                let ban_exp_time = Utc::now() + chrono::Duration::from_std(BAN_DURATION).unwrap();
+                sqlx::query(
+                    "UPDATE user_credentials SET fail_count = ?, ban_exp = ? WHERE username = ?",
+                )
+                .bind(new_fail_count)
+                .bind(ban_exp_time)
+                .bind(username)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("封禁用户 '{}' 时数据库错误：{}", username, e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+                warn!("用户 '{}' 密码错误次数过多，已被封禁", username);
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "密码错误次数过多，账户已被封禁".to_string(),
+                ));
+            } else {
+                // 更新失败计数
+                sqlx::query("UPDATE user_credentials SET fail_count = ? WHERE username = ?")
+                    .bind(new_fail_count)
+                    .bind(username)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| {
+                        error!("更新失败计数时数据库错误：{}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "服务器内部错误".to_string(),
+                        )
+                    })?;
+                warn!("用户 '{}' 密码错误", username);
+                return Err((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()));
+            }
+        }
+
+        // 密码正确，重置失败计数
+        sqlx::query(
+            "UPDATE user_credentials SET fail_count = 0, ban_exp = NULL WHERE username = ?",
+        )
+        .bind(0)
+        .bind(username)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            error!("重置失败计数时数据库错误：{}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "服务器内部错误".to_string(),
+            )
+        })?;
+
+        Ok(UserConfig {
+            permissions: UserPermissions::from_bits(permissions_bits),
+            root_dir,
+        })
+    }
+
+    /// 更新用户权限
+    pub async fn update_permissions(
+        &self,
+        username: &str,
+        permissions: UserPermissions,
+    ) -> Result<(), (StatusCode, String)> {
+        sqlx::query("UPDATE user_credentials SET permissions = ? WHERE username = ?")
+            .bind(&permissions.to_bits())
+            .bind(username)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                error!("更新用户 '{}' 权限时数据库错误：{}", username, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "服务器内部错误".to_string(),
+                )
+            })?;
+        Ok(())
+    }
+
+    /// 更新用户根目录
+    pub async fn update_root_dir(
+        &self,
+        username: &str,
+        root_dir: Option<String>,
+    ) -> Result<(), (StatusCode, String)> {
+        // 验证 root_dir 格式（必须以 / 开头或为 None）
+        if let Some(ref dir) = root_dir {
+            if !dir.starts_with('/') {
+                return Err((StatusCode::BAD_REQUEST, "根目录必须以 / 开头".to_string()));
+            }
+        }
+
+        sqlx::query("UPDATE user_credentials SET root_dir = ? WHERE username = ?")
+            .bind(&root_dir)
+            .bind(username)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                error!("更新用户 '{}' 根目录时数据库错误：{}", username, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "服务器内部错误".to_string(),
+                )
+            })?;
+        Ok(())
+    }
+
+    /// 获取用户配置（包含权限和根目录）
+    pub async fn get_user_config(
+        &self,
+        username: &str,
+    ) -> Result<UserConfig, (StatusCode, String)> {
+        let result: Option<(u8, Option<String>)> =
+            sqlx::query_as("SELECT permissions, root_dir FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("获取用户 '{}' 配置时数据库错误：{}", username, e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        match result {
+            Some((bits, root_dir)) => Ok(UserConfig {
+                permissions: UserPermissions::from_bits(bits),
+                root_dir,
+            }),
+            None => Err((StatusCode::NOT_FOUND, "用户不存在".to_string())),
+        }
+    }
+
+    pub async fn exists(&self, username: &str) -> bool {
+        let result: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
+        result.is_some()
+    }
+
+    /// 删除用户凭证
+    pub async fn remove(&self, username: &str) -> bool {
+        let result = sqlx::query("DELETE FROM user_credentials WHERE username = ?")
+            .bind(username)
+            .execute(&self.pool)
+            .await;
+
+        match result {
+            Ok(rows) => rows.rows_affected() > 0,
+            Err(_) => false,
+        }
+    }
+
+    pub async fn list_usernames(&self) -> Result<Vec<String>, sqlx::Error> {
+        let usernames = sqlx::query_scalar("SELECT username FROM user_credentials")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(usernames)
+    }
+
+    /// 获取用户权限
+    pub async fn get_permissions(
+        &self,
+        username: &str,
+    ) -> Result<UserPermissions, (StatusCode, String)> {
+        let result: Option<(u8,)> =
+            sqlx::query_as("SELECT permissions FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("获取用户 '{}' 权限时数据库错误：{}", username, e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        match result {
+            Some((bits,)) => Ok(UserPermissions::from_bits(bits)),
+            None => Err((StatusCode::NOT_FOUND, "用户不存在".to_string())),
+        }
+    }
+
+    /// 更新用户密码
+    pub async fn update_password(
+        &self,
+        username: &str,
+        new_password: &str,
+    ) -> Result<(), (StatusCode, String)> {
+        // 验证密码强度
+        if new_password.len() < MIN_PASSWORD_LENGTH {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("密码长度至少为 {} 个字符", MIN_PASSWORD_LENGTH),
+            ));
+        }
+
+        // 检查用户是否存在
+        let exists: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("更新密码时数据库错误：{}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        if exists.is_none() {
+            return Err((StatusCode::NOT_FOUND, "用户不存在".to_string()));
+        }
+
+        // 获取现有的 salt
+        let salt_result: Option<(Vec<u8>,)> =
+            sqlx::query_as("SELECT salt FROM user_credentials WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!("获取 salt 时数据库错误：{}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "服务器内部错误".to_string(),
+                    )
+                })?;
+
+        let salt_bytes = match salt_result {
+            Some((salt,)) => salt,
+            None => {
+                return Err((StatusCode::NOT_FOUND, "用户不存在".to_string()));
+            }
+        };
+
+        let salt: [u8; SALT_LENGTH] = salt_bytes.try_into().map_err(|_| {
+            error!("用户 '{}' salt 格式错误", username);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "服务器内部错误".to_string(),
+            )
+        })?;
+
+        // 生成新的密码哈希
+        let password_hash = hash_password_sha512(new_password, username, &salt);
+
+        // 更新密码
+        sqlx::query("UPDATE user_credentials SET password_hash = ? WHERE username = ?")
+            .bind(&password_hash)
+            .bind(username)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                error!("更新用户 '{}' 密码时数据库错误：{}", username, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "服务器内部错误".to_string(),
+                )
+            })?;
+
+        Ok(())
+    }
+}
+
+fn hash_password_sha512(password: &str, username: &str, salt: &[u8]) -> String {
+    let mut hasher = Context::new(&SHA512);
+    hasher.update(salt);
+    hasher.update(&['|' as u8]);
+    hasher.update(&username.as_bytes());
+    hasher.update(&['|' as u8]);
+    hasher.update(password.as_bytes());
+    hex::encode(hasher.finish())
+}
