@@ -45,9 +45,10 @@ pub async fn login(
         return ApiResponse::error(400, format!("时间戳无效：{}", err));
     }
 
-    if let Err(_) = challenge
+    if challenge
         .validate::<_, 4>(payload.salt, &payload.claim, &payload)
         .await
+        .is_err()
     {
         return ApiResponse::error(400, "Challenge 挑战失败".to_string());
     }
@@ -129,7 +130,7 @@ pub async fn get_file(
                 name: query
                     .path
                     .split('/')
-                    .last()
+                    .next_back()
                     .unwrap_or("unknown")
                     .to_string(),
                 url: meta.download_url,
@@ -188,9 +189,7 @@ pub async fn download_file(
 
     let body = Body::from_stream(stream.filter_map(|result| async move {
         match result {
-            Ok(bytes) => Some(Ok::<axum::body::Bytes, std::convert::Infallible>(
-                axum::body::Bytes::from(bytes),
-            )),
+            Ok(bytes) => Some(Ok::<axum::body::Bytes, std::convert::Infallible>(bytes)),
             Err(_) => None,
         }
     }));
@@ -319,7 +318,7 @@ pub async fn upload_file(
     let hash = query.hash.clone();
 
     let stream = StreamReader::new(
-        body.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        body.map_err(|e| std::io::Error::other(e))
             .into_data_stream(),
     );
 

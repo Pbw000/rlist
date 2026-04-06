@@ -35,9 +35,10 @@ pub async fn public_list_files(
         return ApiResponse::error(400, format!("时间戳无效：{}", err));
     }
 
-    if let Err(_) = challenge
+    if challenge
         .validate::<_, 3>(payload.salt, &payload.claim, &payload)
         .await
+        .is_err()
     {
         return ApiResponse::error(400, "Challenge 挑战失败".to_string());
     }
@@ -65,9 +66,10 @@ pub async fn public_download_file(
         return ApiResponse::error(400, format!("时间戳无效：{}", err));
     }
 
-    if let Err(_) = challenge
+    if challenge
         .validate::<_, 3>(payload.salt, &payload.claim, &payload)
         .await
+        .is_err()
     {
         return ApiResponse::error(400, "Challenge 挑战失败".to_string());
     }
@@ -78,7 +80,7 @@ pub async fn public_download_file(
     match registry_guard.get_download_meta_by_path(path).await {
         Ok(meta) => {
             let resp = FileResponse {
-                name: path.split('/').last().unwrap_or("unknown").to_string(),
+                name: path.split('/').next_back().unwrap_or("unknown").to_string(),
                 url: meta.download_url,
                 size: meta.size,
                 hash: meta.hash,

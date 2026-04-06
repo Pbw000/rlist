@@ -181,7 +181,7 @@ impl<T: Serialize> IntoResponse for ApiResponse<T> {
 #[serde(untagged)]
 pub enum UploadResponse {
     /// Direct 模式：返回上传信息
-    Direct(UploadInfoResponse),
+    Direct(Box<UploadInfoResponse>),
     /// Relay 模式：直接上传成功
     Relay { path: String },
 }

@@ -30,6 +30,12 @@ pub trait IntoHashContext {
 pub struct ChallengeTask<const TIMESTAMP_WINDOW_SECS: u64 = 300> {
     pub challenge: Arc<RotatingChallenge>,
 }
+impl<const TIMESTAMP_WINDOW_SECS: u64> Default for ChallengeTask<TIMESTAMP_WINDOW_SECS> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const TIMESTAMP_WINDOW_SECS: u64> ChallengeTask<TIMESTAMP_WINDOW_SECS> {
     pub fn new() -> Self {
         Self {
@@ -99,6 +105,12 @@ pub struct RotatingChallenge {
     prev: ChallengeSalt,
     current: ChallengeSalt,
 }
+impl Default for RotatingChallenge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RotatingChallenge {
     pub fn new() -> Self {
         let salt_dig: u64 = rand::random();

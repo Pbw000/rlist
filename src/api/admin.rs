@@ -209,7 +209,7 @@ pub async fn update_user_permissions(
         .inner
         .auth_config
         .credentials_store
-        .update_permissions(&req.user_name, req.permissions.into())
+        .update_permissions(&req.user_name, req.permissions)
         .await
     {
         Ok(_) => ApiResponse::success(serde_json::json!({
@@ -247,9 +247,10 @@ pub async fn register(
         return ApiResponse::error(400, format!("时间戳无效：{}", err));
     }
 
-    if let Err(_) = challenge
+    if challenge
         .validate::<_, 4>(payload.salt, &payload.claim, &payload)
         .await
+        .is_err()
     {
         return ApiResponse::error(400, "Challenge 挑战失败".to_string());
     }
@@ -261,7 +262,7 @@ pub async fn register(
         .await
     {
         Ok(_user_id) => {
-            let permissions: crate::auth::user_store::UserPermissions = payload.permissions.into();
+            let permissions: crate::auth::user_store::UserPermissions = payload.permissions;
             let credentials_store = &state.inner.auth_config.credentials_store;
 
             // 更新权限
@@ -273,13 +274,12 @@ pub async fn register(
             }
 
             // 更新根目录（如果提供）
-            if let Some(root_dir) = payload.root_dir {
-                if let Err(err) = credentials_store
+            if let Some(root_dir) = payload.root_dir
+                && let Err(err) = credentials_store
                     .update_root_dir(&payload.username, Some(root_dir))
                     .await
-                {
-                    tracing::warn!("用户 {} 根目录更新失败：{}", payload.username, err.1);
-                }
+            {
+                tracing::warn!("用户 {} 根目录更新失败：{}", payload.username, err.1);
             }
 
             ApiResponse::success(RegisterResponse {

@@ -184,7 +184,7 @@ impl UserCredentialsStore {
         // 检查用户名是否已存在
         let exists: Option<(i32,)> =
             sqlx::query_as("SELECT 1 FROM user_credentials WHERE username = ?")
-                .bind(&username)
+                .bind(username)
                 .fetch_optional(&self.pool)
                 .await
                 .map_err(|e| {
@@ -204,16 +204,16 @@ impl UserCredentialsStore {
         rand::rng().fill_bytes(&mut salt);
 
         // 生成密码哈希 (salt + username + password)
-        let password_hash = hash_password_sha512(&password, &username, &salt);
+        let password_hash = hash_password_sha512(password, username, &salt);
 
         // 存储凭证到数据库
         sqlx::query(
             "INSERT INTO user_credentials (username, salt, password_hash, permissions, root_dir) VALUES (?, ?, ?, ?, ?)",
         )
-        .bind(&username)
-        .bind(&salt.as_slice())
+        .bind(username)
+        .bind(salt.as_slice())
         .bind(&password_hash)
-        .bind(&permissions.to_bits())
+        .bind(permissions.to_bits())
         .bind(&root_dir)
         .execute(&self.pool)
         .await
