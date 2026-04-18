@@ -200,8 +200,7 @@ impl UserCredentialsStore {
         }
 
         // 生成随机 salt
-        let mut salt = [0u8; SALT_LENGTH];
-        rand::rng().fill_bytes(&mut salt);
+        let salt: [u8; SALT_LENGTH] = rand::random();
 
         // 生成密码哈希 (salt + username + password)
         let password_hash = hash_password_sha512(password, username, &salt);
