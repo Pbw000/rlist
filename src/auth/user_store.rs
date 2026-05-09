@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use rand::{Rng, RngExt};
+use rand::RngExt;
 use ring::digest::{Context, SHA512};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
