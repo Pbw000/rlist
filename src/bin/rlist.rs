@@ -48,7 +48,7 @@ async fn handle_passwd_command(
             println!("Password reset successfully:");
             println!("Username: {}", user);
             println!("===========================================");
-            tracing::info!("Password reset for user: {}", user);
+            tracing::debug!("Password reset for user: {}", user);
         }
         PasswdSubCommand::Random { user } => {
             if !credentials_store.exists(&user).await {
@@ -66,7 +66,7 @@ async fn handle_passwd_command(
             println!("Username: {}", user);
             println!("Password: {}", random_password);
             println!("===========================================");
-            tracing::info!("Random password generated for user: {}", user);
+            tracing::debug!("Random password generated for user: {}", user);
         }
     }
 
@@ -87,7 +87,7 @@ async fn run_server(
     let pri_registry = StorageRegistry::from_auth_data(config.private_registry)?;
     let state = AppState::new(auth_config, pri_registry, pub_registry);
     let addr = format!("localhost:{}", port);
-    tracing::info!("Starting server on {}", addr);
+    tracing::debug!("Starting server on {}", addr);
     start_server(state, &addr).await?;
 
     Ok(())
@@ -109,6 +109,6 @@ async fn create_admin_account(
     println!("Username: admin");
     println!("Password: {}", random_password);
     println!("===========================================");
-    tracing::info!("Admin user created with random password");
+    tracing::debug!("Admin user created with random password");
     Ok(())
 }

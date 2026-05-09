@@ -998,7 +998,7 @@ impl WopanStorage {
             None
         };
 
-        tracing::info!(
+        tracing::debug!(
             "copy_file: space_type={}, target_dir_id={}, file_ids={:?}, family_id={:?}",
             space_type,
             target_dir_id,

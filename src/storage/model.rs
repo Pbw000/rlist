@@ -150,6 +150,11 @@ pub trait Storage: Send + Sync {
         async { Ok(()) }
     }
 
+    /// 清除缓存
+    fn clear_cache(&self) -> impl Future<Output = ()> + Send {
+        async {}
+    }
+
     /// 处理路径，返回元数据
     fn handle_path(&self, path: &str)
     -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;

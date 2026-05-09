@@ -17,11 +17,11 @@
 
 ### 从源码编译
 
-```bash
+###bash
 git clone https://github.com/pbw000/rlist.git
 cd rlist
 cargo build --release
-```
+###
 
 编译后的二进制文件位于 `target/release/rlist`
 
@@ -35,7 +35,7 @@ cargo build --release
 
 创建 `storage.toml` 配置文件（参考 `storage.toml.example`）：
 
-```toml
+###toml
 [public_registry]
 drivers = []
 
@@ -50,29 +50,29 @@ path = "local"
 
 [private_registry.drivers.config.LocalStorage]
 root_dir = "/path/to/your/datasets"
-```
+###
 
 ### 2. 启动服务器
 
-```bash
+###bash
 # 使用默认端口 (10000)
 ./rlist run
 
 # 指定端口
 ./rlist run --port 8080
-```
+###
 
 首次运行时会自动创建 `admin` 账户并生成随机密码，请妥善保存。
 
 ### 3. 管理密码
 
-```bash
+###bash
 # 重置密码
 ./rlist passwd rst -u admin -n newpassword
 
 # 生成随机密码
 ./rlist passwd random -u admin
-```
+###
 
 ## API 文档
 
@@ -128,7 +128,7 @@ root_dir = "/path/to/your/datasets"
 
 实现 `Storage` trait 并注册到 `StorageRegistry`：
 
-```rust
+###rust
 use rlist::storage::model::Storage;
 
 pub struct MyStorage {
@@ -139,7 +139,7 @@ pub struct MyStorage {
 impl Storage for MyStorage {
     // 实现必要的方法
 }
-```
+###
 
 ## 配置说明
 
@@ -161,28 +161,28 @@ impl Storage for MyStorage {
 
 ### 运行开发服务器
 
-```bash
+###bash
 cargo run -- run --port 10000
-```
+###
 
 ### 运行示例
 
-```bash
+###bash
 cargo run --example mcloud
 cargo run --example storage
-```
+###
 
 ### 构建发布版本
 
-```bash
+###bash
 cargo build --release
-```
+###
 
 发布版本已启用 LTO、strip 和最优的代码大小优化。
 
 ## 项目结构
 
-```
+###
 rlist/
 ├── src/
 │   ├── api/           # Web API 路由和中间件
@@ -198,7 +198,7 @@ rlist/
 ├── static_src/        # 静态资源源文件
 ├── storage.toml       # 存储配置
 └── Cargo.toml
-```
+###
 
 ## 许可证
 

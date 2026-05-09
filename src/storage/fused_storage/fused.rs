@@ -54,7 +54,7 @@ impl<T: Storage> FusedStorage<T> {
             return None;
         }
         let driver = self.drivers.remove(idx);
-        tracing::info!(
+        tracing::debug!(
             "remove_by_idx: removing driver with prefix '{}' at index {}",
             driver.prefix,
             idx
@@ -109,7 +109,7 @@ impl<T: Storage + 'static> FusedStorage<T> {
         match self.copy_end_to_end(meta, dest_path).await {
             Ok(_) => Ok(()),
             Err(RlistError::MetaMissMatch) => {
-                tracing::info!("End to end copy is not supported! Fallback to relay mode.",);
+                tracing::debug!("End to end copy is not supported! Fallback to relay mode.",);
                 self.copy_relay(src_path, dest_path).await?;
                 Ok(())
             }
@@ -126,7 +126,7 @@ impl<T: Storage + 'static> FusedStorage<T> {
         match self.move_end_to_end(meta, dest_path).await {
             Ok(_) => Ok(()),
             Err(RlistError::MetaMissMatch) => {
-                tracing::info!("End to end move is not supported! Fallback to relay mode.");
+                tracing::debug!("End to end move is not supported! Fallback to relay mode.");
                 self.move_file(src_path, dest_path).await?;
                 Ok(())
             }

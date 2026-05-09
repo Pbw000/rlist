@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::debug;
 
 use crate::auth::auth::AuthConfig;
 use crate::auth::challenge::ChallengeTask;
@@ -218,7 +218,7 @@ impl AppState {
 
         users.retain(|_id, user_info| {
             if now - user_info.last_visit_secs > timeout_secs {
-                info!(
+                debug!(
                     "清理超时用户：{} (last_visit_secs: {})",
                     user_info.user_name, user_info.last_visit_secs
                 );
@@ -230,7 +230,7 @@ impl AppState {
         });
 
         if removed_count > 0 {
-            info!("共清理 {} 个超时用户", removed_count);
+            debug!("共清理 {} 个超时用户", removed_count);
         }
     }
 }

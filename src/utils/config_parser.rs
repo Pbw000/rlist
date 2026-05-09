@@ -36,7 +36,7 @@ pub async fn load_config_from_file() -> Result<AppCofiguration, Box<dyn Error + 
     match fs::read_to_string(&path).await {
         Ok(cfg) => match toml::from_str(&cfg) {
             Ok(config) => {
-                tracing::info!("Configuration loaded from: {:?}", path);
+                tracing::debug!("Configuration loaded from: {:?}", path);
                 Ok(config)
             }
             Err(e) => {
@@ -51,8 +51,8 @@ pub async fn load_config_from_file() -> Result<AppCofiguration, Box<dyn Error + 
         Err(e) => {
             // 文件不存在时返回默认配置
             if e.kind() == std::io::ErrorKind::NotFound {
-                tracing::info!("Configuration file not found, using default settings");
-                tracing::info!("Creating default configuration file...");
+                tracing::debug!("Configuration file not found, using default settings");
+                tracing::debug!("Creating default configuration file...");
                 let default_config = AppCofiguration::default();
                 write_cfg(&default_config).await?;
                 Ok(AppCofiguration::default())
@@ -75,7 +75,7 @@ pub async fn write_cfg(cfg: &AppCofiguration) -> Result<(), Box<dyn Error + Send
         fs::create_dir_all(parent).await?;
     }
     fs::write(&path, pretty_string).await?;
-    tracing::info!("Configuration saved to: {:?}", path);
+    tracing::debug!("Configuration saved to: {:?}", path);
     Ok(())
 }
 

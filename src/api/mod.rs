@@ -19,13 +19,13 @@ use std::time::Duration;
 use tower_http::{
     limit::RequestBodyLimitLayer, services::ServeDir, timeout::TimeoutLayer, trace::TraceLayer,
 };
-use tracing::info;
+use tracing::debug;
 
 /// 启动 API 服务器
 pub async fn start_server(state: AppState, addr: &str) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("API 服务器启动在 {}", addr);
-    info!("前端页面访问地址：http://{}/public.html", addr);
+    debug!("API 服务器启动在 {}", addr);
+    debug!("前端页面访问地址：http://{}/public.html", addr);
 
     let static_service = ServeDir::new("static").append_index_html_on_directories(false);
     let root_redirect = get(|| async { Redirect::to("/public.html") });
