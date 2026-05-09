@@ -903,10 +903,16 @@ impl McloudStorage {
         let mut cache = self.path_cache.write().await;
         cache.remove(path);
     }
-    async fn clear_cache(&self) {
+}
+
+impl McloudStorage {
+    pub async fn clear_cache(&self) {
         let mut cache = self.path_cache.write().await;
         cache.clear();
     }
+}
+
+impl McloudStorage {
     async fn build_cache_from_ancestor(
         &self,
         ancestor_file_id: &str,
