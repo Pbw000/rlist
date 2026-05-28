@@ -615,6 +615,7 @@
 
     .file-list.grid-view .file-name {
         font-size: 12px;
+        line-clamp: 2;
         -webkit-line-clamp: 2;
     }
 

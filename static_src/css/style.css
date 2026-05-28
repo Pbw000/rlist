@@ -794,6 +794,7 @@ body {
     word-break: break-word;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     line-height: 1.4;
@@ -1803,6 +1804,7 @@ input:checked + .slider:before {
     .file-list.grid-view .file-name {
         font-size: 12px;
         -webkit-line-clamp: 2;
+        line-clamp: 2;
     }
 
     /* 模态框 */
