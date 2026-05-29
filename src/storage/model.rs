@@ -254,11 +254,11 @@ pub trait Storage: Send + Sync {
         content: R,
         param: UploadInfoParams,
     ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send;
-    fn copy_relay(
-        &self,
-        source_path: &str,
-        dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send
+    fn copy_relay<'a>(
+        &'a self,
+        source_path: &'a str,
+        dest_path: &'a str,
+    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send + 'a
     where
         Self: Sized,
     {
@@ -287,11 +287,11 @@ pub trait Storage: Send + Sync {
         }
     }
 
-    fn move_file(
-        &self,
-        source_path: &str,
-        dest_path: &str,
-    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send
+    fn move_file<'a>(
+        &'a self,
+        source_path: &'a str,
+        dest_path: &'a str,
+    ) -> impl Future<Output = Result<FileMeta, Self::Error>> + Send + 'a
     where
         Self: Sized,
     {
